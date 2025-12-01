@@ -159,14 +159,24 @@ export class InitialSchema1732992000000 implements MigrationInterface {
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     // Drop full-text search trigger and function
-    await queryRunner.query(`DROP TRIGGER IF EXISTS posts_search_vector_update_trigger ON "posts"`);
-    await queryRunner.query(`DROP FUNCTION IF EXISTS posts_search_vector_update()`);
+    await queryRunner.query(
+      `DROP TRIGGER IF EXISTS posts_search_vector_update_trigger ON "posts"`,
+    );
+    await queryRunner.query(
+      `DROP FUNCTION IF EXISTS posts_search_vector_update()`,
+    );
     await queryRunner.query(`DROP INDEX IF EXISTS "post_search_idx"`);
-    await queryRunner.query(`ALTER TABLE "posts" DROP COLUMN IF EXISTS "search_vector"`);
+    await queryRunner.query(
+      `ALTER TABLE "posts" DROP COLUMN IF EXISTS "search_vector"`,
+    );
 
     // Drop foreign keys
-    await queryRunner.query(`ALTER TABLE "posts" DROP CONSTRAINT IF EXISTS "FK_posts_channel_id"`);
-    await queryRunner.query(`ALTER TABLE "refresh_tokens" DROP CONSTRAINT IF EXISTS "FK_refresh_tokens_user_id"`);
+    await queryRunner.query(
+      `ALTER TABLE "posts" DROP CONSTRAINT IF EXISTS "FK_posts_channel_id"`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "refresh_tokens" DROP CONSTRAINT IF EXISTS "FK_refresh_tokens_user_id"`,
+    );
 
     // Drop tables
     await queryRunner.query(`DROP TABLE IF EXISTS "posts"`);

@@ -1,4 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+  Index,
+} from 'typeorm';
 import { Post } from './post.entity';
 
 @Entity('channels')
@@ -30,7 +38,11 @@ export class Channel {
   @Index()
   topic: string;
 
-  @Column({ name: 'channel_type', type: 'enum', enum: ['news', 'personal_blog', 'official'] })
+  @Column({
+    name: 'channel_type',
+    type: 'enum',
+    enum: ['news', 'personal_blog', 'official'],
+  })
   channelType: 'news' | 'personal_blog' | 'official';
 
   @Column({ name: 'is_active', default: true })
@@ -46,7 +58,7 @@ export class Channel {
   @Column({ name: 'crawl_priority', default: 5 })
   crawlPriority: number;
 
-  @OneToMany(() => Post, post => post.channel)
+  @OneToMany(() => Post, (post) => post.channel)
   posts: Post[];
 
   @CreateDateColumn({ name: 'created_at' })

@@ -1,4 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  Index,
+} from 'typeorm';
 import { Channel } from './channel.entity';
 
 @Entity('posts')
@@ -11,7 +20,7 @@ export class Post {
   @Column({ name: 'channel_id' })
   channelId: string;
 
-  @ManyToOne(() => Channel, channel => channel.posts, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Channel, (channel) => channel.posts, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'channel_id' })
   channel: Channel;
 
@@ -25,7 +34,12 @@ export class Post {
   @Column({ name: 'has_media', default: false })
   hasMedia: boolean;
 
-  @Column({ name: 'media_type', type: 'enum', enum: ['photo', 'video', 'document'], nullable: true })
+  @Column({
+    name: 'media_type',
+    type: 'enum',
+    enum: ['photo', 'video', 'document'],
+    nullable: true,
+  })
   mediaType?: 'photo' | 'video' | 'document';
 
   @Column({ name: 'media_file_id', nullable: true })

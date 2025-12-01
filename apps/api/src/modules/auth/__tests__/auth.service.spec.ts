@@ -177,7 +177,9 @@ describe('AuthService', () => {
 
       const saveCall = mockRefreshTokenRepository.save.mock.calls[0][0];
       const actualExpiry = saveCall.expiresAt;
-      const timeDiff = Math.abs(actualExpiry.getTime() - expectedExpiry.getTime());
+      const timeDiff = Math.abs(
+        actualExpiry.getTime() - expectedExpiry.getTime(),
+      );
       expect(timeDiff).toBeLessThan(1000); // Within 1 second
     });
   });

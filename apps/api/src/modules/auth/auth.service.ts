@@ -79,9 +79,7 @@ export class AuthService {
   }
 
   async logout(refreshToken: string) {
-    const payload = this.jwtService.decode(refreshToken) as {
-      sub: string;
-    } | null;
+    const payload = this.jwtService.decode(refreshToken);
     if (payload?.sub) {
       await this.refreshTokenRepository.update(
         { userId: payload.sub, isRevoked: false },
