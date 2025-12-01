@@ -60,7 +60,7 @@
         "dependencies": [
           "3"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -68,9 +68,10 @@
             "description": "Implement the Users module with TypeORM repository integration, user creation with password hashing using bcrypt (cost factor 12), email validation, and user lookup methods.",
             "dependencies": [],
             "details": "Create apps/api/src/modules/users/users.module.ts with TypeOrmModule.forFeature([User]). Implement UsersService with: create() method that checks for existing email, hashes password with bcrypt.hash(password, 12), and saves user; findByEmail() and findById() methods using TypeORM repository; validatePassword() using bcrypt.compare(). Handle ConflictException for duplicate emails.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: create() throws ConflictException for duplicate email, create() hashes password correctly (verify hash differs from plaintext), findByEmail() returns user or null, validatePassword() returns true for correct password and false for incorrect password. Mock TypeORM repository.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-01T08:24:12.244Z"
           },
           {
             "id": 2,
@@ -80,9 +81,10 @@
               1
             ],
             "details": "Create apps/api/src/modules/auth/auth.service.ts. Implement login() method: validate user exists and isActive, check password with UsersService.validatePassword(), call generateTokens(). Implement generateTokens(): create payload { sub: userId }, sign accessToken with jwtService.sign(), sign refreshToken with custom secret/expiry from config. Store refresh token hash in RefreshToken entity with expiresAt (7 days). Return { accessToken, refreshToken }.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: login() throws UnauthorizedException for invalid credentials, login() throws for inactive user, login() returns tokens for valid credentials, generateTokens() creates valid JWT payload, generateTokens() saves hashed refresh token to database. Mock UsersService, JwtService, and RefreshToken repository.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-01T08:28:00.921Z"
           },
           {
             "id": 3,
@@ -92,9 +94,10 @@
               2
             ],
             "details": "In AuthService, implement refreshTokens() method: verify refresh token with JwtService.verify() using refreshSecret from config, query RefreshToken repository for non-revoked tokens matching userId, iterate and compare token hash with bcrypt.compare(), if match found revoke it (set isRevoked=true), generate new token pair with generateTokens(). Implement logout() method: decode refresh token, revoke all active tokens for that userId. Handle token expiry and invalid token errors.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: refreshTokens() throws UnauthorizedException for invalid token, refreshTokens() revokes old token before issuing new one, refreshTokens() prevents reuse of same token twice, logout() revokes all user tokens, expired tokens are rejected. Integration test: verify token rotation prevents replay attacks.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-01T08:28:04.262Z"
           },
           {
             "id": 4,
@@ -104,9 +107,10 @@
               1
             ],
             "details": "Create apps/api/src/modules/auth/strategies/jwt.strategy.ts extending PassportStrategy(Strategy). Configure constructor: use ExtractJwt.fromAuthHeaderAsBearerToken(), get secretOrKey from ConfigService (jwt.accessSecret). Implement validate(payload): extract userId from payload.sub, fetch user with UsersService.findById(), throw UnauthorizedException if user not found or inactive, return user object (will be attached to request).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: validate() returns user for valid payload, validate() throws UnauthorizedException for non-existent user, validate() throws for inactive user, JWT extraction works from Authorization header. Integration test: verify strategy integrates with Passport and attaches user to request.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-01T08:29:06.182Z"
           },
           {
             "id": 5,
@@ -116,9 +120,10 @@
               4
             ],
             "details": "Create apps/api/src/modules/auth/guards/jwt-auth.guard.ts as @Injectable() class extending AuthGuard('jwt'). No custom logic needed - delegates to JwtStrategy. Create apps/api/src/common/decorators/current-user.decorator.ts using createParamDecorator to extract user from request.user. Export JwtAuthGuard from AuthModule for use in other modules.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Integration tests: @UseGuards(JwtAuthGuard) blocks requests without token (401), blocks requests with invalid token (401), allows requests with valid token, @CurrentUser() decorator injects user object. Test with mock controller endpoint.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-01T08:29:10.972Z"
           },
           {
             "id": 6,
@@ -130,9 +135,10 @@
               5
             ],
             "details": "Create apps/api/src/modules/auth/auth.module.ts: import UsersModule, PassportModule, TypeOrmModule.forFeature([RefreshToken]), JwtModule.registerAsync() with ConfigService for accessSecret/expiresIn. Create AuthController with: POST /auth/login (email, password) returning tokens, POST /auth/refresh (refreshToken) returning new tokens, POST /auth/logout (refreshToken) revoking token, POST /auth/me with @UseGuards(JwtAuthGuard) returning current user (exclude passwordHash). Use @HttpCode(HttpStatus.OK) for POST endpoints.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Integration tests for AuthController: POST /auth/login with valid credentials returns accessToken and refreshToken, invalid credentials returns 401, POST /auth/refresh with valid token returns new tokens, POST /auth/logout revokes token, POST /auth/me without token returns 401, POST /auth/me with valid token returns user data without passwordHash.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-01T08:30:01.591Z"
           },
           {
             "id": 7,
@@ -142,9 +148,10 @@
               3
             ],
             "details": "Create apps/api/src/modules/auth/__tests__/auth.service.spec.ts. Test token refresh flow: verify token rotation revokes old token, prevents token reuse, handles expired tokens, validates token hash comparison. Test security: bcrypt hashing uses cost factor 12, refresh tokens are hashed before storage, token expiry is set correctly (7 days), concurrent refresh requests are handled safely. Mock RefreshToken repository, JwtService, ConfigService.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test coverage: token refresh rotation (revocation + new generation), token reuse prevention (second use fails), bcrypt hash verification, token expiry validation, concurrent refresh handling, logout revokes all user tokens. Aim for 100% coverage of AuthService refresh logic.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-01T08:33:35.408Z"
           },
           {
             "id": 8,
@@ -154,14 +161,16 @@
               6
             ],
             "details": "Create apps/api/test/auth.e2e-spec.ts. Test complete flows: user registration → login → access protected endpoint → refresh token → access again → logout → verify token invalid. Test error cases: login with wrong password, refresh with invalid token, access protected route without token, access with expired token. Use TestingModule with real database (test container or in-memory), send HTTP requests to controller, verify database state (tokens stored/revoked), verify JWT payload structure.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "E2E test scenarios: complete auth flow (register→login→refresh→logout), token expiry handling, protected route access with valid/invalid tokens, refresh token rotation in real HTTP requests, verify RefreshToken entities in database, verify bcrypt hashes stored correctly. Use supertest for HTTP requests.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-01T08:38:11.593Z"
           }
         ],
         "complexity": 6,
         "recommendedSubtasks": 8,
-        "expansionPrompt": "Break down into: 1) Create UsersService with password hashing (bcrypt), 2) Implement AuthService with token generation logic, 3) Build JWT refresh token rotation mechanism, 4) Create JwtStrategy and integrate with Passport, 5) Implement JwtAuthGuard, 6) Create AuthController with all endpoints, 7) Write unit tests for token refresh flow, 8) Create integration tests for authentication flows"
+        "expansionPrompt": "Break down into: 1) Create UsersService with password hashing (bcrypt), 2) Implement AuthService with token generation logic, 3) Build JWT refresh token rotation mechanism, 4) Create JwtStrategy and integrate with Passport, 5) Implement JwtAuthGuard, 6) Create AuthController with all endpoints, 7) Write unit tests for token refresh flow, 8) Create integration tests for authentication flows",
+        "updatedAt": "2025-12-01T08:38:11.593Z"
       },
       {
         "id": "5",
@@ -755,9 +764,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-11-30T20:47:26.676Z",
+      "lastModified": "2025-12-01T08:38:11.594Z",
       "taskCount": 10,
-      "completedCount": 3,
+      "completedCount": 4,
       "tags": [
         "master"
       ]

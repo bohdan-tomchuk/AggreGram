@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuthModule } from './modules/auth/auth.module';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
 
@@ -16,6 +17,7 @@ import jwtConfig from './config/jwt.config';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => config.get('database')!,
     }),
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
