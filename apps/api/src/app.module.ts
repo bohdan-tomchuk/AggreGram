@@ -5,14 +5,18 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { ChannelsModule } from './modules/channels/channels.module';
+import { PostsModule } from './modules/posts/posts.module';
+import { CrawlerModule } from './modules/crawler/crawler.module';
 import databaseConfig from './config/database.config';
 import jwtConfig from './config/jwt.config';
+import redisConfig from './config/redis.config';
+import telegramConfig from './config/telegram.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig],
+      load: [databaseConfig, jwtConfig, redisConfig, telegramConfig],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -20,6 +24,8 @@ import jwtConfig from './config/jwt.config';
     }),
     AuthModule,
     ChannelsModule,
+    PostsModule,
+    CrawlerModule,
   ],
   controllers: [AppController],
   providers: [AppService],
