@@ -10,6 +10,7 @@ import { Post } from '../../database/entities/post.entity';
 import { TelegramService } from './telegram.service';
 import { CrawlChannelProcessor } from './jobs/crawl-channel.job';
 import { CrawlerService } from './crawler.service';
+import { MediaService } from './media.service';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { CrawlerService } from './crawler.service';
     }),
     BullModule.registerQueue({ name: 'crawl' }),
   ],
-  providers: [TelegramService, CrawlChannelProcessor, CrawlerService],
-  exports: [CrawlerService, TelegramService],
+  providers: [TelegramService, MediaService, CrawlChannelProcessor, CrawlerService],
+  exports: [CrawlerService, TelegramService, MediaService],
 })
 export class CrawlerModule {}

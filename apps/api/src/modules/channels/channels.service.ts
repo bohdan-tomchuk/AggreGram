@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Channel } from '../../database/entities/channel.entity';
@@ -18,44 +13,38 @@ export class ChannelsService {
   ) {}
 
   private parseUsername(input: string): string {
-    // Handle @username, t.me/username, https://t.me/username
     const patterns = [
       /^@([a-zA-Z0-9_]+)$/,
       /^t\.me\/([a-zA-Z0-9_]+)$/,
       /^https?:\/\/t\.me\/([a-zA-Z0-9_]+)$/,
     ];
-
+    
     for (const pattern of patterns) {
       const match = input.match(pattern);
       if (match) return match[1];
     }
-
+    
     throw new BadRequestException('Invalid channel username or link format');
   }
 
   async create(dto: CreateChannelDto): Promise<Channel> {
     const username = this.parseUsername(dto.usernameOrLink);
-
-    // Check for duplicates
-    const existing = await this.channelsRepository.findOne({
-      where: { username },
-    });
+    
+    const existing = await this.channelsRepository.findOne({ where: { username } });
     if (existing) {
       throw new ConflictException('Channel already exists');
     }
-
-    // TODO: Resolve channel via Telegram API (will be implemented in crawler module)
-    // For now, create with placeholder data
+    
     const channel = this.channelsRepository.create({
       username,
-      telegramId: '0', // Will be updated by crawler
+      telegramId: '0',
       title: username,
       topic: dto.topic,
       channelType: dto.channelType,
       crawlPriority: dto.crawlPriority || 5,
       isActive: true,
     });
-
+    
     return this.channelsRepository.save(channel);
   }
 
@@ -65,22 +54,20 @@ export class ChannelsService {
     isActive?: boolean;
   }): Promise<Channel[]> {
     const query = this.channelsRepository.createQueryBuilder('channel');
-
+    
     if (filters?.topic) {
       query.andWhere('channel.topic = :topic', { topic: filters.topic });
     }
     if (filters?.channelType) {
-      query.andWhere('channel.channelType = :channelType', {
-        channelType: filters.channelType,
-      });
+      query.andWhere('channel.channelType = :channelType', { channelType: filters.channelType });
     }
     if (filters?.isActive !== undefined) {
-      query.andWhere('channel.isActive = :isActive', {
-        isActive: filters.isActive,
-      });
+      query.andWhere('channel.isActive = :isActive', { isActive: filters.isActive });
     }
-
-    return query.orderBy('channel.title', 'ASC').getMany();
+    
+    return query
+      .orderBy('channel.title', 'ASC')
+      .getMany();
   }
 
   async findOne(id: string): Promise<Channel> {
@@ -97,15 +84,12 @@ export class ChannelsService {
 
   async remove(id: string): Promise<void> {
     const channel = await this.findOne(id);
-    // Soft delete
     channel.isActive = false;
     await this.channelsRepository.save(channel);
   }
 
   async refreshMetadata(id: string): Promise<Channel> {
     const channel = await this.findOne(id);
-    // TODO: Implement Telegram API call to refresh metadata
-    // This will be completed in the crawler module
     return channel;
   }
 }

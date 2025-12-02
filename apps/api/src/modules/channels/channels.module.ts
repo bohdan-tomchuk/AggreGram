@@ -6,7 +6,10 @@ import { ChannelsController } from './channels.controller';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Channel]), AuthModule],
+  imports: [
+    TypeOrmModule.forFeature([Channel]),
+    AuthModule,
+  ],
   providers: [ChannelsService],
   controllers: [ChannelsController],
   exports: [ChannelsService],

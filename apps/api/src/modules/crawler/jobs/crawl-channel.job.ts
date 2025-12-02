@@ -4,6 +4,7 @@ import { Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TelegramService } from '../telegram.service';
+import { MediaService } from '../media.service';
 import { Channel } from '../../../database/entities/channel.entity';
 import { Post } from '../../../database/entities/post.entity';
 
@@ -17,6 +18,7 @@ export class CrawlChannelProcessor extends WorkerHost {
 
   constructor(
     private telegramService: TelegramService,
+    private mediaService: MediaService,
     @InjectRepository(Channel)
     private channelsRepository: Repository<Channel>,
     @InjectRepository(Post)
@@ -83,6 +85,27 @@ export class CrawlChannelProcessor extends WorkerHost {
             channelId: channel.id,
           });
           await this.postsRepository.save(post);
+
+          // Generate thumbnail for photo posts
+          if (msg.hasMedia && msg.mediaType === 'photo' && msg.mediaFileId) {
+            try {
+              const buffer = await this.telegramService.downloadMedia(
+                msg.mediaFileId,
+                'photo',
+              );
+              const thumbnailUrl = await this.mediaService.generateThumbnail(
+                buffer,
+                msg.mediaFileId,
+              );
+              post.mediaThumbnail = thumbnailUrl;
+              await this.postsRepository.save(post);
+            } catch (error) {
+              this.logger.warn(
+                `Failed to generate thumbnail for post ${post.id}`,
+                error,
+              );
+            }
+          }
         }
       }
 
