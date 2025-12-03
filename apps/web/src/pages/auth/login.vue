@@ -6,23 +6,27 @@
       </template>
 
       <form @submit.prevent="handleLogin" class="space-y-4">
-        <UFormGroup label="Email" name="email" :error="errors.email">
+        <div>
+          <label class="block text-sm font-medium mb-1">Email</label>
           <UInput
             v-model="form.email"
             type="email"
             placeholder="your@email.com"
             required
           />
-        </UFormGroup>
+          <p v-if="errors.email" class="mt-1 text-sm text-red-500">{{ errors.email }}</p>
+        </div>
 
-        <UFormGroup label="Password" name="password" :error="errors.password">
+        <div>
+          <label class="block text-sm font-medium mb-1">Password</label>
           <UInput
             v-model="form.password"
             type="password"
             placeholder="••••••••"
             required
           />
-        </UFormGroup>
+          <p v-if="errors.password" class="mt-1 text-sm text-red-500">{{ errors.password }}</p>
+        </div>
 
         <UButton
           type="submit"
@@ -35,7 +39,7 @@
       </form>
 
       <div v-if="errors.general" class="mt-4">
-        <UAlert color="red" variant="soft" :title="errors.general" />
+        <UAlert color="error" variant="soft" :title="errors.general" />
       </div>
     </UCard>
   </div>

@@ -6,33 +6,36 @@
       </template>
 
       <form @submit.prevent="handleSubmit" class="space-y-4">
-        <UFormGroup label="Channel Username or Link" name="usernameOrLink">
+        <div>
+          <label class="block text-sm font-medium mb-1">Channel Username or Link</label>
           <UInput
             v-model="form.usernameOrLink"
             placeholder="@channel or t.me/channel"
             required
           />
-        </UFormGroup>
+        </div>
 
-        <UFormGroup label="Topic" name="topic">
+        <div>
+          <label class="block text-sm font-medium mb-1">Topic</label>
           <UInput v-model="form.topic" placeholder="Technology" required />
-        </UFormGroup>
+        </div>
 
-        <UFormGroup label="Type" name="channelType">
+        <div>
+          <label class="block text-sm font-medium mb-1">Type</label>
           <USelect
             v-model="form.channelType"
             :options="['news', 'personal_blog', 'official']"
             required
           />
-        </UFormGroup>
+        </div>
 
         <div class="flex gap-2">
           <UButton type="submit" :loading="loading">Add Channel</UButton>
-          <UButton color="gray" variant="ghost" @click="isOpen = false">Cancel</UButton>
+          <UButton color="neutral" variant="ghost" @click="isOpen = false">Cancel</UButton>
         </div>
       </form>
 
-      <UAlert v-if="error" color="red" variant="soft" :title="error" class="mt-4" />
+      <UAlert v-if="error" color="error" variant="soft" :title="error" class="mt-4" />
     </UCard>
   </UModal>
 </template>

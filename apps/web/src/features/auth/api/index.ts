@@ -1,3 +1,5 @@
+import { useApi } from '~/shared/api/client';
+
 export const authApi = {
   async login(email: string, password: string) {
     const api = useApi();

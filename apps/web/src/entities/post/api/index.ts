@@ -1,4 +1,5 @@
 import type { Post } from '@telegram-crawler/types';
+import { useApi } from '~/shared/api/client';
 
 interface FeedResponse {
   data: Post[];

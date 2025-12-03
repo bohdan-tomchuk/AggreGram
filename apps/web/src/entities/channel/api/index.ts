@@ -1,4 +1,5 @@
 import type { Channel } from '@telegram-crawler/types';
+import { useApi } from '~/shared/api/client';
 
 export const channelApi = {
   async getAll(filters?: { topic?: string; channelType?: string; isActive?: boolean }) {
