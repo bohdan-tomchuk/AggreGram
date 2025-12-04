@@ -1,11 +1,7 @@
 <template>
-  <UModal v-model="isOpen">
-    <UCard>
-      <template #header>
-        <h3 class="text-lg font-semibold">Add Channel</h3>
-      </template>
-
-      <form @submit.prevent="handleSubmit" class="space-y-4">
+  <UModal v-model:open="isOpen" title="Add Channel">
+    <template #body>
+      <form id="add-channel-form" @submit.prevent="handleSubmit" class="space-y-4">
         <div>
           <label class="block text-sm font-medium mb-1">Channel Username or Link</label>
           <UInput
@@ -24,27 +20,37 @@
           <label class="block text-sm font-medium mb-1">Type</label>
           <USelect
             v-model="form.channelType"
-            :options="['news', 'personal_blog', 'official']"
+            :items="['news', 'personal_blog', 'official']"
             required
           />
         </div>
 
-        <div class="flex gap-2">
-          <UButton type="submit" :loading="loading">Add Channel</UButton>
-          <UButton color="neutral" variant="ghost" @click="isOpen = false">Cancel</UButton>
-        </div>
+        <UAlert v-if="error" color="error" variant="soft" :title="error" />
       </form>
+    </template>
 
-      <UAlert v-if="error" color="error" variant="soft" :title="error" class="mt-4" />
-    </UCard>
+    <template #footer>
+      <div class="flex gap-2">
+        <UButton type="submit" form="add-channel-form" :loading="loading">Add Channel</UButton>
+        <UButton color="neutral" variant="ghost" @click="modelValue = false">Cancel</UButton>
+      </div>
+    </template>
   </UModal>
 </template>
 
 <script setup lang="ts">
 import { channelApi } from '~/entities/channel/api';
 
-const isOpen = defineModel<boolean>();
+const modelValue = defineModel<boolean>({ default: false });
 const emit = defineEmits(['added']);
+
+// Sync with UModal's open prop
+const isOpen = computed({
+  get: () => modelValue.value,
+  set: (value) => {
+    modelValue.value = value;
+  },
+});
 
 const form = reactive({
   usernameOrLink: '',
@@ -62,7 +68,7 @@ const handleSubmit = async () => {
   try {
     const channel = await channelApi.create(form);
     emit('added', channel);
-    isOpen.value = false;
+    modelValue.value = false;
     form.usernameOrLink = '';
     form.topic = '';
     form.channelType = 'news';

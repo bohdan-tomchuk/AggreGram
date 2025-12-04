@@ -17,12 +17,12 @@
             <p class="text-sm text-gray-500">@{{ channel.username }}</p>
             <div class="flex gap-2 mt-2">
               <UBadge>{{ channel.topic }}</UBadge>
-              <UBadge color="gray">{{ channel.channelType }}</UBadge>
+              <UBadge color="neutral">{{ channel.channelType }}</UBadge>
             </div>
           </div>
           <div class="flex gap-1">
             <UButton icon="i-heroicons-arrow-path" size="xs" @click="refreshChannel(channel.id)" />
-            <UButton icon="i-heroicons-trash" color="red" size="xs" @click="deleteChannel(channel.id)" />
+            <UButton icon="i-heroicons-trash" color="error" size="xs" @click="deleteChannel(channel.id)" />
           </div>
         </div>
       </UCard>

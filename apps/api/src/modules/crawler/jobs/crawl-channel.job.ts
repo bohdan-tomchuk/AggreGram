@@ -12,6 +12,19 @@ interface CrawlChannelData {
   channelId: string;
 }
 
+interface MessageData {
+  telegramPostId: string;
+  textContent?: string;
+  hasMedia: boolean;
+  mediaType?: 'photo' | 'video' | 'document';
+  mediaFileId?: string;
+  views?: number;
+  forwards?: number;
+  postedAt: Date;
+  isEdited: boolean;
+  editedAt?: Date;
+}
+
 @Processor('crawl', { concurrency: 2 })
 export class CrawlChannelProcessor extends WorkerHost {
   private readonly logger = new Logger(CrawlChannelProcessor.name);
@@ -53,18 +66,18 @@ export class CrawlChannelProcessor extends WorkerHost {
       }
 
       // Fetch new messages
-      const messages = await this.telegramService.fetchMessages(
+      const messages = (await this.telegramService.fetchMessages(
         channel.username!,
         channel.lastPostId,
         100,
-      );
+      )) as (MessageData | null)[];
 
       this.logger.log(
         `Fetched ${messages.length} messages for channel ${channel.username}`,
       );
 
       // Save posts
-      for (const msg of messages.filter((m) => m !== null)) {
+      for (const msg of messages.filter((m): m is MessageData => m !== null)) {
         const existing = await this.postsRepository.findOne({
           where: {
             channelId: channel.id,
@@ -72,47 +85,53 @@ export class CrawlChannelProcessor extends WorkerHost {
           },
         });
 
+        let post: Post;
+
         if (existing) {
           // Update if edited
           if (msg.isEdited) {
             Object.assign(existing, msg);
             await this.postsRepository.save(existing);
           }
+          post = existing;
         } else {
           // Create new post
-          const post = this.postsRepository.create({
+          const newPost = this.postsRepository.create({
             ...msg,
             channelId: channel.id,
           });
-          await this.postsRepository.save(post);
+          post = await this.postsRepository.save(newPost);
+        }
 
-          // Generate thumbnail for photo posts
-          if (msg.hasMedia && msg.mediaType === 'photo' && msg.mediaFileId) {
-            try {
-              const buffer = await this.telegramService.downloadMedia(
-                msg.mediaFileId,
-                'photo',
-              );
-              const thumbnailUrl = await this.mediaService.generateThumbnail(
-                buffer,
-                msg.mediaFileId,
-              );
-              post.mediaThumbnail = thumbnailUrl;
-              await this.postsRepository.save(post);
-            } catch (error) {
-              this.logger.warn(
-                `Failed to generate thumbnail for post ${post.id}`,
-                error,
-              );
-            }
+        // Generate thumbnail for photo posts
+        if (msg.hasMedia && msg.mediaType === 'photo' && msg.mediaFileId) {
+          try {
+            const buffer = await this.telegramService.downloadMedia(
+              msg.mediaFileId,
+              'photo',
+            );
+            const thumbnailUrl = await this.mediaService.generateThumbnail(
+              buffer,
+              msg.mediaFileId,
+            );
+            post.mediaThumbnail = thumbnailUrl;
+            await this.postsRepository.save(post);
+          } catch (error) {
+            this.logger.warn(
+              `Failed to generate thumbnail for post ${post.id}`,
+              error,
+            );
           }
         }
       }
 
       // Update channel last crawl info
-      if (messages.length > 0) {
+      const validMessages = messages.filter(
+        (m): m is MessageData => m !== null,
+      );
+      if (validMessages.length > 0) {
         const maxPostId = Math.max(
-          ...messages.map((m) => parseInt(m.telegramPostId)),
+          ...validMessages.map((m) => parseInt(m.telegramPostId)),
         );
         channel.lastPostId = maxPostId.toString();
       }
@@ -121,7 +140,7 @@ export class CrawlChannelProcessor extends WorkerHost {
 
       return { messageCount: messages.length };
     } catch (error) {
-      if (error.message?.startsWith('FLOOD_WAIT_')) {
+      if (error instanceof Error && error.message.startsWith('FLOOD_WAIT_')) {
         const waitTime = parseInt(error.message.split('_')[2]);
         this.logger.warn(`FLOOD_WAIT: Retrying in ${waitTime} seconds`);
         throw new Error(`Rate limited, retry after ${waitTime}s`);

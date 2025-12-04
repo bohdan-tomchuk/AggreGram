@@ -21,7 +21,7 @@ export class CrawlerService implements OnModuleInit {
     await this.queueActiveChannels();
   }
 
-  @Cron(CronExpression.EVERY_30_MINUTES)
+  @Cron(CronExpression.EVERY_MINUTE)
   async scheduledCrawl() {
     this.logger.log('Running scheduled crawl');
     await this.queueActiveChannels();

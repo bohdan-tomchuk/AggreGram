@@ -1,19 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TelegramService } from './telegram.service';
-import * as sharp from 'sharp';
+import sharp from 'sharp';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 @Injectable()
 export class MediaService {
   private readonly logger = new Logger(MediaService.name);
-  private readonly thumbnailDir = path.join(process.cwd(), 'storage', 'thumbnails');
+  private readonly thumbnailDir = path.join(
+    process.cwd(),
+    'storage',
+    'thumbnails',
+  );
 
   constructor(private telegramService: TelegramService) {
-    this.ensureDirectories();
+    void this.ensureDirectories();
   }
 
-  private async ensureDirectories() {
+  private async ensureDirectories(): Promise<void> {
     await fs.mkdir(this.thumbnailDir, { recursive: true });
   }
 
