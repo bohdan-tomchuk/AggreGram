@@ -107,44 +107,14 @@ export class TelegramService implements OnModuleInit {
   private parseMessage(message: Api.Message): any {
     if (!message || message.id === undefined) return null;
 
-    let mediaType: 'photo' | 'video' | 'document' | undefined;
-    let mediaFileId: string | undefined;
-
-    if (message.media) {
-      if (message.media instanceof Api.MessageMediaPhoto) {
-        mediaType = 'photo';
-        mediaFileId = (message.media.photo as Api.Photo)?.id?.toString();
-      } else if (message.media instanceof Api.MessageMediaDocument) {
-        const doc = message.media.document as Api.Document;
-        if (doc.mimeType?.startsWith('video/')) {
-          mediaType = 'video';
-        } else {
-          mediaType = 'document';
-        }
-        mediaFileId = doc.id?.toString();
-      }
-    }
-
     return {
       telegramPostId: message.id.toString(),
       textContent: message.message || null,
-      hasMedia: !!message.media,
-      mediaType,
-      mediaFileId,
       views: message.views,
       forwards: message.forwards,
       postedAt: new Date(message.date * 1000),
       isEdited: !!message.editDate,
       editedAt: message.editDate ? new Date(message.editDate * 1000) : null,
     };
-  }
-
-  async downloadMedia(
-    fileId: string,
-    mediaType: 'photo' | 'video' | 'document',
-  ): Promise<Buffer> {
-    // TODO: Implement media download using file_id
-    // This requires accessing the message that contains the media
-    throw new Error('Media download not implemented yet');
   }
 }

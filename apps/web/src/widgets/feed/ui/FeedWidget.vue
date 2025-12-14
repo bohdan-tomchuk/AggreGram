@@ -18,10 +18,6 @@
 
           <p class="text-base" v-html="post.highlight || post.textContent"></p>
 
-          <div v-if="post.hasMedia && post.mediaThumbnail" class="mt-2">
-            <img :src="post.mediaThumbnail" alt="Post media" class="rounded max-h-64 object-cover" />
-          </div>
-
           <div class="flex gap-4 text-sm text-gray-500">
             <span v-if="post.views">{{ post.views }} views</span>
             <span v-if="post.forwards">{{ post.forwards }} forwards</span>

@@ -31,10 +31,6 @@ export interface Post {
   channelId: string;
   telegramPostId: string;
   textContent?: string;
-  hasMedia: boolean;
-  mediaType?: 'photo' | 'video' | 'document';
-  mediaFileId?: string;
-  mediaThumbnail?: string;
   views?: number;
   forwards?: number;
   postedAt: Date;

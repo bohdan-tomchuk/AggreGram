@@ -7,10 +7,7 @@ import { PostsController } from './posts.controller';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Post, Channel]),
-    AuthModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Post, Channel]), AuthModule],
   providers: [PostsService],
   controllers: [PostsController],
   exports: [PostsService],

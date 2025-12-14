@@ -5,7 +5,7 @@ export default defineNuxtConfig({
 
   srcDir: 'src/',
 
-  modules: ['@nuxt/ui', '@pinia/nuxt'],
+  modules: ['@nuxt/ui', '@pinia/nuxt', '@nuxt/icon'],
 
   css: ['~/assets/css/main.css'],
 
@@ -18,5 +18,13 @@ export default defineNuxtConfig({
   typescript: {
     strict: true,
     typeCheck: false,
+  },
+
+  vite: {
+    server: {
+      hmr: {
+        protocol: 'ws',
+      },
+    },
   },
 })

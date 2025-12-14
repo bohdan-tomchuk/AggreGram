@@ -45,7 +45,7 @@ import { useUserStore } from '~/entities/user/model/store';
 import ChannelList from '~/widgets/channel-list/ui/ChannelList.vue';
 import FeedWidget from '~/widgets/feed/ui/FeedWidget.vue';
 import type { Post } from '@telegram-crawler/types';
-import { useDebounceFn } from '@vueuse/core';
+import { useDebounceFn } from '~/shared/utils/useDebounceFn';
 
 const posts = ref<Post[]>([]);
 const feedLoading = ref(false);

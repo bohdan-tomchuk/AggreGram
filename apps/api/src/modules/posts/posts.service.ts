@@ -30,7 +30,9 @@ export class PostsService {
 
     // Apply filters
     if (query.channelId) {
-      qb.andWhere('post.channelId = :channelId', { channelId: query.channelId });
+      qb.andWhere('post.channelId = :channelId', {
+        channelId: query.channelId,
+      });
     }
 
     if (query.topic) {
@@ -50,10 +52,7 @@ export class PostsService {
     qb.orderBy(sortField, order.toUpperCase() as 'ASC' | 'DESC');
 
     // Get total count and results
-    const [posts, total] = await qb
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    const [posts, total] = await qb.skip(skip).take(limit).getManyAndCount();
 
     return {
       data: posts,
@@ -72,14 +71,20 @@ export class PostsService {
     const skip = (page - 1) * limit;
 
     // Sanitize search query for PostgreSQL
-    const searchTerm = query.q.replace(/[^\w\s]/g, ' ').trim().split(/\s+/).join(' & ');
+    const searchTerm = query.q
+      .replace(/[^\w\s]/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .join(' & ');
 
     let qb = this.postsRepository
       .createQueryBuilder('post')
       .leftJoinAndSelect('post.channel', 'channel')
       .where('post.isDeleted = :isDeleted', { isDeleted: false })
       .andWhere('channel.isActive = :isActive', { isActive: true })
-      .andWhere('post.search_vector @@ to_tsquery(:searchTerm)', { searchTerm });
+      .andWhere('post.search_vector @@ to_tsquery(:searchTerm)', {
+        searchTerm,
+      });
 
     // Apply additional filters
     if (query.topic) {
@@ -96,20 +101,14 @@ export class PostsService {
 
     // Add ranking and highlighting
     qb = qb
-      .addSelect(
-        'ts_rank(post.search_vector, to_tsquery(:searchTerm))',
-        'rank',
-      )
+      .addSelect('ts_rank(post.search_vector, to_tsquery(:searchTerm))', 'rank')
       .addSelect(
         `ts_headline('english', post.text_content, to_tsquery(:searchTerm), 'MaxWords=50, MinWords=20, StartSel=<mark>, StopSel=</mark>')`,
         'highlight',
       )
       .orderBy('rank', 'DESC');
 
-    const [posts, total] = await qb
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    const [posts, total] = await qb.skip(skip).take(limit).getManyAndCount();
 
     // Map results to include highlights
     const results = posts.map((post: any) => ({
@@ -136,16 +135,5 @@ export class PostsService {
     });
     if (!post) throw new NotFoundException('Post not found');
     return post;
-  }
-
-  async getMediaUrl(id: string): Promise<{ mediaFileId: string; mediaType: string }> {
-    const post = await this.findOne(id);
-    if (!post.hasMedia || !post.mediaFileId) {
-      throw new NotFoundException('Post has no media');
-    }
-    return {
-      mediaFileId: post.mediaFileId,
-      mediaType: post.mediaType || 'photo',
-    };
   }
 }

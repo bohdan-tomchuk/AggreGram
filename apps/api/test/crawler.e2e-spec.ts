@@ -151,9 +151,9 @@ describe('Crawler Integration Tests (e2e)', () => {
 
       mockTelegramClient.getEntity.mockResolvedValue(mockUser);
 
-      await expect(
-        telegramService.resolveChannel('testuser'),
-      ).rejects.toThrow('Entity is not a channel');
+      await expect(telegramService.resolveChannel('testuser')).rejects.toThrow(
+        'Entity is not a channel',
+      );
     });
 
     it('should handle FLOOD_WAIT errors', async () => {

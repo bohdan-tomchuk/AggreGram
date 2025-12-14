@@ -1,4 +1,12 @@
-import { IsString, IsEnum, IsOptional, IsInt, Min, Max, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsBoolean,
+} from 'class-validator';
 
 export class UpdateChannelDto {
   @IsOptional()

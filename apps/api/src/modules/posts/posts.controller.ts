@@ -1,4 +1,11 @@
-import { Controller, Get, Param, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  UseGuards,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { PostsService } from './posts.service';
 import { FeedQueryDto } from './dto/feed-query.dto';
 import { SearchQueryDto } from './dto/search-query.dto';
@@ -22,10 +29,5 @@ export class PostsController {
   @Get(':id')
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.postsService.findOne(id);
-  }
-
-  @Get(':id/media')
-  async getMedia(@Param('id', ParseUUIDPipe) id: string) {
-    return this.postsService.getMediaUrl(id);
   }
 }
