@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
+import { User } from '../modules/users/user.entity';
+import { RefreshToken } from '../modules/auth/refresh-token.entity';
 
 @Module({
   imports: [
@@ -12,10 +14,8 @@ import { ConfigService } from '@nestjs/config';
         username: configService.get('database.username'),
         password: configService.get('database.password'),
         database: configService.get('database.database'),
-        entities: [],
+        entities: [User, RefreshToken],
         synchronize: false,
-        migrations: ['src/database/migrations/*.ts'],
-        migrationsTableName: 'migrations',
       }),
       inject: [ConfigService],
     }),

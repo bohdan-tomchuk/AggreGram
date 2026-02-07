@@ -1,5 +1,7 @@
 import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
+import { User } from '../modules/users/user.entity';
+import { RefreshToken } from '../modules/auth/refresh-token.entity';
 
 dotenv.config();
 
@@ -10,7 +12,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || 'aggregram',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'aggregram',
-  entities: [],
+  entities: [User, RefreshToken],
   synchronize: false,
   migrations: ['src/database/migrations/*.ts'],
   migrationsTableName: 'migrations',
