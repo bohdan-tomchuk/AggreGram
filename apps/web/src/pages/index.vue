@@ -21,18 +21,23 @@
 </template>
 
 <script setup lang="ts">
+definePageMeta({
+  middleware: 'auth',
+})
+
 const apiStatus = ref<{ ok: boolean; message: string } | null>(null)
 
-const checkApi = async () => {
-  const { data, error } = await useAPI('/')
+const { $api } = useNuxtApp()
 
-  if (error.value) {
+const checkApi = async () => {
+  try {
+    await $api('/')
+    apiStatus.value = { ok: true, message: 'API is connected!' }
+  } catch {
     apiStatus.value = {
       ok: false,
-      message: 'API connection failed (expected until backend is running)'
+      message: 'API connection failed (expected until backend is running)',
     }
-  } else {
-    apiStatus.value = { ok: true, message: 'API is connected!' }
   }
 }
 </script>

@@ -9,6 +9,10 @@
       </p>
     </div>
 
+    <div v-if="serverError" class="rounded-md bg-red-50 dark:bg-red-900/20 p-3">
+      <p class="text-sm text-red-700 dark:text-red-400">{{ serverError }}</p>
+    </div>
+
     <div class="space-y-4">
       <UFormField label="Email" :error="errors.email">
         <UInput
@@ -57,6 +61,7 @@
       size="lg"
       color="primary"
       :loading="loading"
+      :disabled="loading"
     >
       Sign in
     </UButton>
@@ -71,12 +76,15 @@
 </template>
 
 <script setup lang="ts">
+import { validateEmail } from '@shared/lib/validators'
+
 const emit = defineEmits<{
   submit: [payload: { email: string; password: string; rememberMe: boolean }]
 }>()
 
-defineProps<{
+const props = defineProps<{
   loading?: boolean
+  serverError?: string
 }>()
 
 const form = reactive({
@@ -92,19 +100,13 @@ const errors = reactive({
   password: '',
 })
 
+watch(() => props.serverError, () => {
+  // Clear field errors when a new server error arrives
+})
+
 function validate(): boolean {
-  errors.email = ''
-  errors.password = ''
-
-  if (!form.email) {
-    errors.email = 'Email is required'
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-    errors.email = 'Enter a valid email'
-  }
-
-  if (!form.password) {
-    errors.password = 'Password is required'
-  }
+  errors.email = validateEmail(form.email)
+  errors.password = form.password ? '' : 'Password is required'
 
   return !errors.email && !errors.password
 }

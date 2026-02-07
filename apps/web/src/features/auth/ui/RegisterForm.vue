@@ -9,6 +9,10 @@
       </p>
     </div>
 
+    <div v-if="serverError" class="rounded-md bg-red-50 dark:bg-red-900/20 p-3">
+      <p class="text-sm text-red-700 dark:text-red-400">{{ serverError }}</p>
+    </div>
+
     <div class="space-y-4">
       <UFormField label="Email" :error="errors.email">
         <UInput
@@ -74,6 +78,7 @@
       size="lg"
       color="primary"
       :loading="loading"
+      :disabled="loading"
     >
       Create account
     </UButton>
@@ -89,6 +94,7 @@
 
 <script setup lang="ts">
 import PasswordStrengthBar from './PasswordStrengthBar.vue'
+import { validateEmail, validatePassword } from '@shared/lib/validators'
 
 const emit = defineEmits<{
   submit: [payload: { email: string; password: string }]
@@ -96,6 +102,7 @@ const emit = defineEmits<{
 
 defineProps<{
   loading?: boolean
+  serverError?: string
 }>()
 
 const form = reactive({
@@ -115,32 +122,18 @@ const errors = reactive({
 })
 
 function validate(): boolean {
-  errors.email = ''
-  errors.password = ''
-  errors.confirmPassword = ''
-  errors.terms = ''
-
-  if (!form.email) {
-    errors.email = 'Email is required'
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-    errors.email = 'Enter a valid email'
-  }
-
-  if (!form.password) {
-    errors.password = 'Password is required'
-  } else if (form.password.length < 8) {
-    errors.password = 'Password must be at least 8 characters'
-  }
+  errors.email = validateEmail(form.email)
+  errors.password = validatePassword(form.password)
 
   if (!form.confirmPassword) {
     errors.confirmPassword = 'Please confirm your password'
   } else if (form.password !== form.confirmPassword) {
     errors.confirmPassword = 'Passwords do not match'
+  } else {
+    errors.confirmPassword = ''
   }
 
-  if (!form.terms) {
-    errors.terms = 'You must accept the terms'
-  }
+  errors.terms = form.terms ? '' : 'You must accept the terms'
 
   return !errors.email && !errors.password && !errors.confirmPassword && !errors.terms
 }

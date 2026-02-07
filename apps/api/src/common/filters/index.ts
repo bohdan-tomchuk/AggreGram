@@ -1,1 +1,1 @@
-// Export custom filters here
+export { HttpExceptionFilter } from './http-exception.filter';

@@ -12,6 +12,10 @@ export default defineNuxtConfig({
   // Add srcDir to tell Nuxt where source code lives
   srcDir: 'src/',
 
+  dir: {
+    plugins: 'app/plugins',
+  },
+
   // Update aliases for all FSD layers (absolute paths from project root)
   alias: {
     '@shared': fileURLToPath(new URL('./src/shared', import.meta.url)),
