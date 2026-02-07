@@ -57,4 +57,15 @@ export default defineNuxtConfig({
       'shared/model/stores',
     ],
   },
+
+  ui: {
+    colors: {
+      primary: 'brand',
+      secondary: 'neutral',
+      success: 'green',
+      warning: 'amber',
+      error: 'red',
+      neutral: 'zinc',
+    },
+  },
 })

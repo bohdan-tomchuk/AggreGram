@@ -1,6 +1,7 @@
 <template>
   <div class="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
     <div class="text-center">
+      <img src="@shared/assets/images/logo.webp" alt="AggreGram" class="w-16 h-16 rounded-xl mx-auto mb-4" />
       <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-4">
         AggreGram
       </h1>
