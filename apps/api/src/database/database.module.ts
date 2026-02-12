@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { User } from '../modules/users/user.entity';
 import { RefreshToken } from '../modules/auth/refresh-token.entity';
+import { TelegramConnection } from '../modules/telegram/entities/telegram-connection.entity';
+import { UserBot } from '../modules/telegram/entities/user-bot.entity';
 
 @Module({
   imports: [
@@ -14,7 +16,7 @@ import { RefreshToken } from '../modules/auth/refresh-token.entity';
         username: configService.get('database.username'),
         password: configService.get('database.password'),
         database: configService.get('database.database'),
-        entities: [User, RefreshToken],
+        entities: [User, RefreshToken, TelegramConnection, UserBot],
         synchronize: false,
       }),
       inject: [ConfigService],

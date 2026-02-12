@@ -59,6 +59,7 @@ export default defineNuxtConfig({
       'shared/lib',
       'shared/model/composables',
       'shared/model/stores',
+      'entities/telegram/model',
     ],
   },
 

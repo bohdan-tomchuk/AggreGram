@@ -46,5 +46,8 @@ coverage/
 *.sqlite
 *.sqlite3
 
+# TDLib session data
+tdlib-data/
+
 # Docker
 docker-compose.override.yml

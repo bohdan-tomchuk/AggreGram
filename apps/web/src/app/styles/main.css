@@ -44,19 +44,6 @@
   --color-accent-900: #062c35;
   --color-accent-950: #041c22;
 
-  /* Spacing tokens */
-  --spacing-xs: 0.25rem;
-  --spacing-sm: 0.5rem;
-  --spacing-md: 1rem;
-  --spacing-lg: 1.5rem;
-  --spacing-xl: 2rem;
-  --spacing-2xl: 3rem;
-  --spacing-3xl: 4rem;
-  --spacing-4xl: 5rem;
-  --spacing-5xl: 6rem;
-  --spacing-6xl: 8rem;
-  --spacing-7xl: 10rem;
-
   /* Border radius */
   --radius-sm: 4px;
   --radius-md: 4px;
