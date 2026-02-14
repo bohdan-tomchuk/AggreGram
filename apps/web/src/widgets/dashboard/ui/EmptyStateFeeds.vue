@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-center justify-center min-h-[60vh]">
+  <div class="flex items-center justify-center h-full">
     <div class="max-w-md w-full mx-auto">
       <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center">
         <!-- Icon circle -->
