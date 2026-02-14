@@ -3,6 +3,7 @@ import {
   OnModuleDestroy,
   Logger,
   BadRequestException,
+  TooManyRequestsException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -590,7 +591,290 @@ export class TdlibService implements OnModuleDestroy {
     }
   }
 
-  private mapTdlibError(error: unknown): BadRequestException {
+  /**
+   * Search for public Telegram channels/chats by query.
+   */
+  async searchPublicChats(userId: string, query: string): Promise<any[]> {
+    const client = this.getClient(userId);
+
+    try {
+      const result = await client.invoke({
+        _: 'searchPublicChats',
+        query,
+      }) as { chat_ids: number[] };
+
+      // Get full chat info for each result
+      const chats = await Promise.all(
+        result.chat_ids.map(async (chatId) => {
+          try {
+            return await this.getChat(userId, chatId);
+          } catch (err) {
+            this.logger.warn(`Failed to get chat ${chatId}:`, err);
+            return null;
+          }
+        })
+      );
+
+      return chats.filter((chat) => chat !== null);
+    } catch (error) {
+      this.logger.error(`Failed to search public chats for user ${userId}:`, error);
+      throw new BadRequestException('Failed to search channels');
+    }
+  }
+
+  /**
+   * Get detailed information about a chat by ID.
+   */
+  async getChat(userId: string, chatId: number): Promise<any> {
+    const client = this.getClient(userId);
+
+    try {
+      const chat = await client.invoke({
+        _: 'getChat',
+        chat_id: chatId,
+      });
+
+      return chat;
+    } catch (error) {
+      this.logger.error(`Failed to get chat ${chatId} for user ${userId}:`, error);
+      throw new BadRequestException('Failed to get channel information');
+    }
+  }
+
+  /**
+   * Get full information about a supergroup/channel.
+   */
+  async getSupergroupFullInfo(userId: string, supergroupId: number): Promise<any> {
+    const client = this.getClient(userId);
+
+    try {
+      const fullInfo = await client.invoke({
+        _: 'getSupergroupFullInfo',
+        supergroup_id: supergroupId,
+      });
+
+      return fullInfo;
+    } catch (error) {
+      this.logger.warn(`Failed to get supergroup full info ${supergroupId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get a chat by username.
+   */
+  async searchPublicChat(userId: string, username: string): Promise<any> {
+    const client = this.getClient(userId);
+
+    try {
+      // Remove @ if present
+      const cleanUsername = username.startsWith('@') ? username.slice(1) : username;
+
+      const chat = await client.invoke({
+        _: 'searchPublicChat',
+        username: cleanUsername,
+      });
+
+      return chat;
+    } catch (error) {
+      this.logger.error(`Failed to get chat by username @${username}:`, error);
+      throw new BadRequestException('Channel not found');
+    }
+  }
+
+  /**
+   * Create a new Telegram channel using user's session.
+   */
+  async createChannel(userId: string, title: string, description: string): Promise<number> {
+    const client = this.getClient(userId);
+
+    try {
+      const result = await client.invoke({
+        _: 'createNewSupergroupChat',
+        title,
+        description,
+        is_channel: true,
+        for_import: false,
+      }) as { id: number };
+
+      this.logger.log(`Created channel "${title}" with ID ${result.id} for user ${userId}`);
+      return result.id;
+    } catch (error) {
+      this.logger.error(`Failed to create channel for user ${userId}:`, error);
+      throw new BadRequestException('Failed to create Telegram channel');
+    }
+  }
+
+  /**
+   * Add a bot as admin to a channel with posting permissions.
+   */
+  async addBotAsAdmin(userId: string, channelId: number, botUserId: string): Promise<void> {
+    const client = this.getClient(userId);
+
+    try {
+      await client.invoke({
+        _: 'setChatMemberStatus',
+        chat_id: channelId,
+        member_id: {
+          _: 'messageSenderUser',
+          user_id: parseInt(botUserId, 10),
+        },
+        status: {
+          _: 'chatMemberStatusAdministrator',
+          custom_title: '',
+          can_be_edited: false,
+          rights: {
+            _: 'chatAdministratorRights',
+            can_manage_chat: true,
+            can_change_info: false,
+            can_post_messages: true,
+            can_edit_messages: true,
+            can_delete_messages: true,
+            can_invite_users: false,
+            can_restrict_members: false,
+            can_pin_messages: false,
+            can_manage_topics: false,
+            can_promote_members: false,
+            can_manage_video_chats: false,
+            can_post_stories: false,
+            can_edit_stories: false,
+            can_delete_stories: false,
+            is_anonymous: false,
+          },
+        },
+      });
+
+      this.logger.log(`Added bot ${botUserId} as admin to channel ${channelId}`);
+    } catch (error) {
+      this.logger.error(`Failed to add bot as admin to channel ${channelId}:`, error);
+      throw new BadRequestException('Failed to add bot as channel admin');
+    }
+  }
+
+  /**
+   * Get an invite link for a channel.
+   */
+  async getInviteLink(userId: string, channelId: number): Promise<string> {
+    const client = this.getClient(userId);
+
+    try {
+      const result = await client.invoke({
+        _: 'getChatInviteLink',
+        chat_id: channelId,
+      }) as { invite_link: string };
+
+      return result.invite_link;
+    } catch (error) {
+      this.logger.error(`Failed to get invite link for channel ${channelId}:`, error);
+      throw new BadRequestException('Failed to get channel invite link');
+    }
+  }
+
+  /**
+   * Get chat history (messages) from a channel.
+   * @param userId User ID
+   * @param chatId Telegram chat ID
+   * @param fromMessageId Starting message ID (0 for latest messages)
+   * @param limit Number of messages to fetch (max 100)
+   */
+  async getChatHistory(
+    userId: string,
+    chatId: number,
+    fromMessageId: number = 0,
+    limit: number = 100,
+  ): Promise<any[]> {
+    const client = this.getClient(userId);
+
+    try {
+      const result = await client.invoke({
+        _: 'getChatHistory',
+        chat_id: chatId,
+        from_message_id: fromMessageId,
+        offset: -99, // Fetch messages before fromMessageId
+        limit: Math.min(limit, 100),
+        only_local: false,
+      }) as { messages: any[] };
+
+      return result.messages || [];
+    } catch (error) {
+      this.logger.error(`Failed to get chat history for chat ${chatId}:`, error);
+      throw new BadRequestException('Failed to fetch messages from channel');
+    }
+  }
+
+  /**
+   * Forward a message from one chat to another using Bot API.
+   * @param botToken User's bot token
+   * @param fromChatId Source chat ID
+   * @param messageId Message ID to forward
+   * @param toChatId Destination chat ID
+   */
+  async forwardMessage(
+    botToken: string,
+    fromChatId: number,
+    messageId: number,
+    toChatId: number,
+  ): Promise<any> {
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${botToken}/forwardMessage`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: toChatId,
+            from_chat_id: fromChatId,
+            message_id: messageId,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        // Handle rate limiting specifically
+        if (data.error_code === 429) {
+          const retryAfter = data.parameters?.retry_after || 60;
+          this.logger.warn({
+            message: 'Bot API rate limit hit',
+            messageId,
+            fromChatId,
+            toChatId,
+            retryAfter,
+          });
+          const exception = new TooManyRequestsException(
+            `Rate limited. Retry after ${retryAfter} seconds`,
+          );
+          // Add retry-after as a custom property
+          (exception as any).retryAfter = retryAfter;
+          throw exception;
+        }
+
+        this.logger.error(
+          `Failed to forward message ${messageId}: ${JSON.stringify(data)}`,
+        );
+        throw new BadRequestException(
+          data.description || 'Failed to forward message',
+        );
+      }
+
+      return data.result;
+    } catch (error) {
+      this.logger.error(
+        `Failed to forward message ${messageId} from ${fromChatId} to ${toChatId}:`,
+        error,
+      );
+      if (
+        error instanceof BadRequestException ||
+        error instanceof TooManyRequestsException
+      ) {
+        throw error;
+      }
+      throw new BadRequestException('Failed to forward message');
+    }
+  }
+
+  private mapTdlibError(error: unknown): BadRequestException | TooManyRequestsException {
     if (error instanceof Error) {
       const msg = error.message;
 
@@ -610,9 +894,11 @@ export class TdlibService implements OnModuleDestroy {
       }
       if (msg.includes('FLOOD_WAIT')) {
         const seconds = msg.match(/FLOOD_WAIT_(\d+)/)?.[1] || '60';
-        return new BadRequestException(
+        const exception = new TooManyRequestsException(
           `Rate limited. Please wait ${seconds} seconds`,
         );
+        (exception as any).retryAfter = parseInt(seconds, 10);
+        return exception;
       }
       if (msg.includes('SESSION_PASSWORD_NEEDED')) {
         return new BadRequestException('Two-factor authentication required');

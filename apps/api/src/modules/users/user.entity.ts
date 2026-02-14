@@ -4,7 +4,9 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  OneToOne,
 } from 'typeorm';
+import { UserBot } from '../telegram/entities/user-bot.entity';
 
 @Entity('users')
 export class User {
@@ -16,6 +18,9 @@ export class User {
 
   @Column({ name: 'password_hash' })
   passwordHash: string;
+
+  @OneToOne(() => UserBot, (userBot) => userBot.user)
+  userBot?: UserBot;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

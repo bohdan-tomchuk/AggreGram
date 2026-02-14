@@ -1,0 +1,80 @@
+import type { FeedWithDetails } from '@aggregram/types'
+
+export function useMockFeeds(): FeedWithDetails[] {
+  const now = new Date().toISOString()
+
+  return [
+    {
+      id: '1',
+      userId: 'user1',
+      name: 'Tech News',
+      description: 'Latest updates from technology channels and startups',
+      status: 'active',
+      pollingIntervalSec: 300,
+      createdAt: now,
+      updatedAt: now,
+      channel: {
+        id: 'ch1',
+        feedId: '1',
+        telegramChannelId: '-1001234567890',
+        inviteLink: 'https://t.me/+AbCdEfGhIjKlMnOp',
+        title: 'Tech News Feed',
+        createdAt: now,
+        updatedAt: now,
+      },
+      sourceCount: 12,
+    },
+    {
+      id: '2',
+      userId: 'user1',
+      name: 'Crypto Updates',
+      description: null,
+      status: 'active',
+      pollingIntervalSec: 180,
+      createdAt: now,
+      updatedAt: now,
+      channel: {
+        id: 'ch2',
+        feedId: '2',
+        telegramChannelId: '-1001234567891',
+        inviteLink: 'https://t.me/+QrStUvWxYzAbCdEf',
+        title: 'Crypto Updates Feed',
+        createdAt: now,
+        updatedAt: now,
+      },
+      sourceCount: 8,
+    },
+    {
+      id: '3',
+      userId: 'user1',
+      name: 'Design Inspiration',
+      description: 'Beautiful designs and creative works from top designers',
+      status: 'paused',
+      pollingIntervalSec: 600,
+      createdAt: now,
+      updatedAt: now,
+      channel: {
+        id: 'ch3',
+        feedId: '3',
+        telegramChannelId: '-1001234567892',
+        inviteLink: 'https://t.me/+GhIjKlMnOpQrStUv',
+        title: 'Design Inspiration Feed',
+        createdAt: now,
+        updatedAt: now,
+      },
+      sourceCount: 5,
+    },
+    {
+      id: '4',
+      userId: 'user1',
+      name: 'Startup Jobs',
+      description: 'Job opportunities from fast-growing startups',
+      status: 'draft',
+      pollingIntervalSec: 900,
+      createdAt: now,
+      updatedAt: now,
+      channel: null,
+      sourceCount: 3,
+    },
+  ]
+}

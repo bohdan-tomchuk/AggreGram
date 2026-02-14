@@ -13,6 +13,8 @@ export default defineNuxtConfig({
   srcDir: 'src/',
 
   dir: {
+    layouts: 'app/layouts',
+    middleware: 'app/middleware',
     plugins: 'app/plugins',
   },
 
@@ -60,6 +62,7 @@ export default defineNuxtConfig({
       'shared/model/composables',
       'shared/model/stores',
       'entities/telegram/model',
+      'entities/feed/model',
     ],
   },
 

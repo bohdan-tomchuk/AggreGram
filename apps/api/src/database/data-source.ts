@@ -4,6 +4,11 @@ import { User } from '../modules/users/user.entity';
 import { RefreshToken } from '../modules/auth/refresh-token.entity';
 import { TelegramConnection } from '../modules/telegram/entities/telegram-connection.entity';
 import { UserBot } from '../modules/telegram/entities/user-bot.entity';
+import { Feed } from '../modules/feeds/entities/feed.entity';
+import { FeedChannel } from '../modules/feeds/entities/feed-channel.entity';
+import { FeedSource } from '../modules/feeds/entities/feed-source.entity';
+import { SourceChannel } from '../modules/feeds/entities/source-channel.entity';
+import { AggregationJob } from '../modules/feeds/entities/aggregation-job.entity';
 
 dotenv.config();
 
@@ -14,7 +19,17 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME || 'aggregram',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'aggregram',
-  entities: [User, RefreshToken, TelegramConnection, UserBot],
+  entities: [
+    User,
+    RefreshToken,
+    TelegramConnection,
+    UserBot,
+    Feed,
+    FeedChannel,
+    FeedSource,
+    SourceChannel,
+    AggregationJob,
+  ],
   synchronize: false,
   migrations: ['src/database/migrations/*.ts'],
   migrationsTableName: 'migrations',

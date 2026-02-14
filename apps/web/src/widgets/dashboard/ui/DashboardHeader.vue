@@ -13,7 +13,7 @@
         <slot name="title" />
       </div>
 
-      <!-- Right: Connection badge + user info -->
+      <!-- Right: Connection badge -->
       <div class="flex items-center gap-4">
         <!-- Connection status badge -->
         <div
@@ -25,20 +25,6 @@
             Connected
           </span>
         </div>
-
-        <!-- User email and logout -->
-        <div class="flex items-center gap-2">
-          <span class="text-sm text-gray-600 dark:text-gray-400 hidden sm:inline">
-            {{ authStore.user?.email }}
-          </span>
-          <UButton
-            icon="i-lucide-log-out"
-            variant="ghost"
-            color="neutral"
-            title="Sign Out"
-            @click="handleLogout"
-          />
-        </div>
       </div>
     </div>
   </header>
@@ -49,12 +35,5 @@ const emit = defineEmits<{
   'toggle-menu': []
 }>()
 
-const authStore = useAuthStore()
 const telegramStore = useTelegramStore()
-const router = useRouter()
-
-const handleLogout = async () => {
-  await authStore.logout()
-  router.push('/auth/login')
-}
 </script>
