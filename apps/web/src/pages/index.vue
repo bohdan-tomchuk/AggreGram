@@ -11,7 +11,7 @@
     </div>
 
     <!-- Empty state: No Telegram connection -->
-    <EmptyStateTelegram v-else-if="!telegramStore.isConnected" />
+    <EmptyStateTelegram v-else-if="!telegramStore.isConnectedOrUnknown" />
 
     <!-- Empty state: Connected but no feeds -->
     <EmptyStateFeeds v-else-if="!feedStore.hasFeeds" />
@@ -27,9 +27,6 @@
         description="One or more of your feeds encountered errors. Check the feed details for more information."
       />
 
-      <!-- Status Widget -->
-      <StatusWidget />
-
       <!-- Feed Grid -->
       <FeedGrid />
     </div>
@@ -41,7 +38,8 @@ import EmptyStateTelegram from '@widgets/dashboard/ui/EmptyStateTelegram.vue'
 import EmptyStateFeeds from '@widgets/dashboard/ui/EmptyStateFeeds.vue'
 import FeedGrid from '@widgets/dashboard/ui/FeedGrid.vue'
 import DashboardLayout from '@widgets/dashboard/ui/DashboardLayout.vue'
-import StatusWidget from '@widgets/dashboard/ui/StatusWidget.vue'
+import { useTelegramStore } from '@entities/telegram/model/connectionStore'
+import { useFeedStore } from '@entities/feed/model/feedStore'
 
 definePageMeta({
   middleware: 'auth',
@@ -61,7 +59,7 @@ onMounted(async () => {
     await telegramStore.fetchConnection()
 
     // Only fetch feeds if user is connected to Telegram
-    if (telegramStore.isConnected) {
+    if (telegramStore.isConnectedOrUnknown) {
       feedsLoading.value = true
       try {
         await feedStore.fetchFeeds()

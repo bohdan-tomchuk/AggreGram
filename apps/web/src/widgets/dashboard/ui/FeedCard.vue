@@ -5,9 +5,7 @@
       <h3 class="text-lg font-semibold text-gray-900 dark:text-white truncate flex-1">
         {{ feed.name }}
       </h3>
-      <UBadge :color="statusColor" variant="subtle" size="xs">
-        {{ feed.status }}
-      </UBadge>
+      <span :class="statusClass">{{ feed.status }}</span>
     </div>
 
     <!-- Description -->
@@ -72,14 +70,15 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const statusColor = computed(() => {
-  const colors: Record<FeedStatus, string> = {
-    active: 'green',
-    paused: 'amber',
-    draft: 'neutral',
-    error: 'red',
+const statusClass = computed(() => {
+  const base = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize'
+  const classes: Record<FeedStatus, string> = {
+    active: `${base} bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400`,
+    paused: `${base} bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400`,
+    draft: `${base} bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400`,
+    error: `${base} bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400`,
   }
-  return colors[props.feed.status]
+  return classes[props.feed.status]
 })
 
 const sourceCountText = computed(() => {

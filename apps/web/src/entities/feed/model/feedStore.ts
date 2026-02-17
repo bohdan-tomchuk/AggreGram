@@ -133,7 +133,7 @@ export const useFeedStore = defineStore('feed', () => {
   async function addSource(feedId: string, data: AddSourceRequest): Promise<boolean> {
     sourcesLoading.value = true
     error.value = ''
-
+    
     try {
       const updatedFeed = await api.addSource(feedId, data)
       // Update feed in list

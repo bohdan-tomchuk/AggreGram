@@ -79,59 +79,67 @@
     </div>
 
     <!-- Add Source Modal -->
-    <UModal v-model="showAddModal" :ui="{ width: 'sm:max-w-md' }">
-      <div class="p-6">
-        <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Add Source Channel
-        </h3>
-
-        <!-- Search input -->
+    <UModal v-model:open="showAddModal" title="Add Source Channel" :ui="{ width: 'sm:max-w-md' }">
+      <template #body>
         <div class="space-y-4">
-          <UInput
-            v-model="searchQuery"
-            placeholder="Search for Telegram channels..."
-            icon="i-lucide-search"
-            size="lg"
-            @input="handleSearch"
-          />
+          <!-- Username input + lookup button -->
+          <div class="flex gap-2">
+            <UInput
+              v-model="searchQuery"
+              placeholder="Enter channel username (e.g. @durov)"
+              icon="i-lucide-at-sign"
+              size="lg"
+              class="flex-1"
+              :disabled="lookupLoading"
+              @keydown.enter="handleLookup"
+            />
+            <UButton
+              icon="i-lucide-search"
+              size="lg"
+              :loading="lookupLoading"
+              :disabled="!searchQuery.trim()"
+              @click="handleLookup"
+            >
+              Find
+            </UButton>
+          </div>
 
-          <!-- Search loading -->
-          <div v-if="searchLoading" class="text-center py-8">
+          <!-- Lookup loading -->
+          <div v-if="lookupLoading" class="text-center py-8">
             <UIcon name="i-lucide-loader-circle" class="size-6 text-gray-400 animate-spin mx-auto" />
-            <p class="text-xs text-gray-500 mt-2">Searching...</p>
+            <p class="text-xs text-gray-500 mt-2">Looking up channel...</p>
           </div>
 
-          <!-- Search error -->
-          <div v-else-if="searchError" class="text-center py-4">
-            <p class="text-sm text-red-600 dark:text-red-400">{{ searchError }}</p>
+          <!-- Lookup error -->
+          <div v-else-if="lookupError" class="text-center py-4">
+            <UIcon name="i-lucide-search-x" class="size-8 text-gray-400 mx-auto mb-2" />
+            <p class="text-sm text-red-600 dark:text-red-400">{{ lookupError }}</p>
           </div>
 
-          <!-- Search results -->
-          <div v-else-if="searchResults.length > 0" class="space-y-2 max-h-96 overflow-y-auto">
+          <!-- Result channel card -->
+          <div v-else-if="lookupResult" class="space-y-2">
             <button
-              v-for="channel in searchResults"
-              :key="channel.id"
               class="w-full p-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-primary-500 dark:hover:border-primary-500 transition-colors text-left"
-              :disabled="addingChannelId === channel.id"
-              @click="handleAdd(channel)"
+              :disabled="addingChannelId === lookupResult.id"
+              @click="handleAdd(lookupResult)"
             >
               <div class="flex items-start justify-between">
                 <div class="flex-1 min-w-0">
                   <h4 class="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {{ channel.title }}
+                    {{ lookupResult.title }}
                   </h4>
-                  <p v-if="channel.username" class="text-xs text-gray-500 dark:text-gray-400">
-                    @{{ channel.username }}
+                  <p v-if="lookupResult.username" class="text-xs text-gray-500 dark:text-gray-400">
+                    @{{ lookupResult.username }}
                   </p>
-                  <p v-if="channel.description" class="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mt-1">
-                    {{ channel.description }}
+                  <p v-if="lookupResult.description" class="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mt-1">
+                    {{ lookupResult.description }}
                   </p>
-                  <p v-if="channel.subscriberCount" class="text-xs text-gray-500 mt-1">
-                    {{ formatNumber(channel.subscriberCount) }} subscribers
+                  <p v-if="lookupResult.subscriberCount" class="text-xs text-gray-500 mt-1">
+                    {{ formatNumber(lookupResult.subscriberCount) }} subscribers
                   </p>
                 </div>
                 <UIcon
-                  v-if="addingChannelId === channel.id"
+                  v-if="addingChannelId === lookupResult.id"
                   name="i-lucide-loader-circle"
                   class="size-4 text-gray-400 animate-spin"
                 />
@@ -144,25 +152,18 @@
             </button>
           </div>
 
-          <!-- Empty search -->
-          <div v-else-if="searchQuery.length >= 2" class="text-center py-8">
-            <UIcon name="i-lucide-search-x" class="size-8 text-gray-400 mx-auto mb-2" />
-            <p class="text-sm text-gray-500 dark:text-gray-400">
-              No channels found
-            </p>
-          </div>
-
-          <!-- Search hint -->
+          <!-- Initial hint -->
           <div v-else class="text-center py-8">
-            <UIcon name="i-lucide-search" class="size-8 text-gray-400 mx-auto mb-2" />
+            <UIcon name="i-lucide-at-sign" class="size-8 text-gray-400 mx-auto mb-2" />
             <p class="text-sm text-gray-500 dark:text-gray-400">
-              Type at least 2 characters to search
+              Enter a channel username and press Enter or click Find
             </p>
           </div>
         </div>
+      </template>
 
-        <!-- Footer -->
-        <div class="flex justify-end gap-3 mt-6">
+      <template #footer>
+        <div class="flex justify-end gap-3">
           <UButton
             variant="ghost"
             @click="showAddModal = false"
@@ -170,7 +171,7 @@
             Cancel
           </UButton>
         </div>
-      </div>
+      </template>
     </UModal>
   </div>
 </template>
@@ -178,13 +179,14 @@
 <script setup lang="ts">
 import type { FeedSource, SourceChannel } from '@aggregram/types'
 import { useChannelSearch } from '@shared/model/composables/useChannelSearch'
+import { useFeedStore } from '@entities/feed/model/feedStore'
 
 const props = defineProps<{
   feedId: string
 }>()
 
 const feedStore = useFeedStore()
-const { search, results: searchResults, loading: searchLoading, error: searchError, clear: clearSearch } = useChannelSearch()
+const { lookup, result: lookupResult, loading: lookupLoading, error: lookupError, clear: clearLookup } = useChannelSearch()
 
 const sources = ref<FeedSource[]>([])
 const loading = ref(true)
@@ -198,11 +200,11 @@ onMounted(async () => {
   await loadSources()
 })
 
-// Watch modal close to clear search
+// Watch modal close to clear lookup
 watch(showAddModal, (isOpen) => {
   if (!isOpen) {
     searchQuery.value = ''
-    clearSearch()
+    clearLookup()
     addingChannelId.value = null
   }
 })
@@ -213,9 +215,10 @@ async function loadSources() {
   loading.value = false
 }
 
-function handleSearch(event: Event) {
-  const target = event.target as HTMLInputElement
-  search(target.value)
+function handleLookup() {
+  if (searchQuery.value.trim()) {
+    lookup(searchQuery.value.trim())
+  }
 }
 
 async function handleAdd(channel: SourceChannel) {
@@ -236,7 +239,7 @@ async function handleAdd(channel: SourceChannel) {
     await loadSources()
     showAddModal.value = false
     searchQuery.value = ''
-    clearSearch()
+    clearLookup()
   }
 }
 

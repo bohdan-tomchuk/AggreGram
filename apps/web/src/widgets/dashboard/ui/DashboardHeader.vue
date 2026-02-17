@@ -17,7 +17,7 @@
       <div class="flex items-center gap-4">
         <!-- Connection status badge -->
         <div
-          v-if="telegramStore.isConnected"
+          v-if="telegramStore.isConnectedOrUnknown"
           class="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-green-50 dark:bg-green-900/20 rounded-full text-sm"
         >
           <span class="w-2 h-2 rounded-full bg-green-500" />
@@ -31,6 +31,8 @@
 </template>
 
 <script setup lang="ts">
+import { useTelegramStore } from '@entities/telegram/model/connectionStore'
+
 const emit = defineEmits<{
   'toggle-menu': []
 }>()

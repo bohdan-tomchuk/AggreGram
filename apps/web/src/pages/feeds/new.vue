@@ -100,6 +100,7 @@
 <script setup lang="ts">
 import DashboardLayout from '@widgets/dashboard/ui/DashboardLayout.vue'
 import type { CreateFeedRequest } from '@aggregram/types'
+import { useFeedStore } from '@entities/feed/model/feedStore'
 
 definePageMeta({
   middleware: ['auth', 'telegram-connected'],

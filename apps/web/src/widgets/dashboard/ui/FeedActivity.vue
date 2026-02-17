@@ -106,6 +106,7 @@
 
 <script setup lang="ts">
 import type { AggregationJob } from '@aggregram/types'
+import { useFeedStore } from '@entities/feed/model/feedStore'
 
 const props = defineProps<{
   feedId: string
@@ -121,7 +122,7 @@ onMounted(async () => {
   await fetchJobs()
 
   // Auto-refresh every 30s for active feeds
-  if (props.isActive) {
+  if (props.isActive && import.meta.client) {
     refreshInterval = setInterval(fetchJobs, 30000)
   }
 })
@@ -139,7 +140,7 @@ watch(() => props.isActive, (active) => {
     refreshInterval = null
   }
 
-  if (active) {
+  if (active && import.meta.client) {
     refreshInterval = setInterval(fetchJobs, 30000)
   }
 })

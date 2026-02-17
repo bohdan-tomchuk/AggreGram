@@ -53,7 +53,14 @@
           title="Feed Error"
           description="This feed encountered an error. Please check your Telegram connection or try recreating the channel."
           :actions="[
-            { label: 'Check Connection', variant: 'solid', color: 'error', click: () => navigateTo('/') },
+            { 
+                label: 'Check Connection', 
+                variant: 'solid', 
+                color: 'error', 
+                onClick: () => {
+                    navigateTo('/')
+                }
+            },
           ]"
         />
 
@@ -120,7 +127,7 @@
               label: 'Create Channel',
               variant: 'solid',
               loading: channelCreationLoading,
-              click: handleCreateChannel
+              onClick: handleCreateChannel
             },
           ]"
         />
@@ -236,6 +243,15 @@
             </p>
           </div>
         </div>
+
+        <!-- Add Source Modal -->
+        <AddSourceModal
+          v-if="feed"
+          v-model="showAddSourceModal"
+          :feed-id="feed.id"
+          :existing-source-ids="sources.map((s: FeedSource) => s.channel.id)"
+          @source-added="handleSourceAdded"
+        />
       </div>
 
       <!-- Error state -->
@@ -257,7 +273,9 @@
 
 <script setup lang="ts">
 import DashboardLayout from '@widgets/dashboard/ui/DashboardLayout.vue'
+import AddSourceModal from '@widgets/dashboard/ui/AddSourceModal.vue'
 import type { FeedWithDetails, FeedSource } from '@aggregram/types'
+import { useFeedStore } from '@entities/feed/model/feedStore'
 
 definePageMeta({
   middleware: ['auth', 'telegram-connected'],
@@ -273,6 +291,7 @@ const sources = ref<FeedSource[]>([])
 const loading = ref(true)
 const channelCreationLoading = ref(false)
 const syncLoading = ref(false)
+const showAddSourceModal = ref(false)
 
 const statusColor = computed(() => {
   switch (feed.value?.status) {
@@ -311,7 +330,7 @@ async function handleCreateChannel() {
   channelCreationLoading.value = true
   const success = await feedStore.createChannel(feedId.value)
 
-  if (success) {
+  if (success && import.meta.client) {
     // Poll feed status every 2s to check if channel was created
     const pollInterval = setInterval(async () => {
       await loadFeed()
@@ -355,17 +374,22 @@ async function handleResume() {
 async function handleRemoveSource(sourceId: string) {
   const success = await feedStore.removeSource(feedId.value, sourceId)
   if (success) {
-    sources.value = sources.value.filter(s => s.id !== sourceId)
+    sources.value = sources.value.filter((s: FeedSource) => s.id !== sourceId)
     await loadFeed()
   }
 }
 
 function manageSources() {
-  // TODO: Open modal or navigate to source management page
+  showAddSourceModal.value = true
+}
+
+async function handleSourceAdded() {
+  // Reload feed to update sourceCount and sources list
+  await loadFeed()
   toast.add({
-    title: 'Coming soon',
-    description: 'Source management UI will be available soon.',
-    color: 'info',
+    title: 'Source added',
+    description: 'Channel added to your feed successfully.',
+    color: 'success',
   })
 }
 

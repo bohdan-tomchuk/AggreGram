@@ -33,6 +33,7 @@
 
 <script setup lang="ts">
 import FeedCard from './FeedCard.vue'
+import { useFeedStore } from '@entities/feed/model/feedStore'
 
 const feedStore = useFeedStore()
 

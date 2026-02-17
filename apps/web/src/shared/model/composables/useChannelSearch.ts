@@ -1,83 +1,88 @@
 import { ref, type Ref } from 'vue';
 import type { SourceChannel } from '@aggregram/types';
 
-interface UseChannelSearchReturn {
+interface UseChannelLookupReturn {
   query: Ref<string>;
-  results: Ref<SourceChannel[]>;
+  result: Ref<SourceChannel | null>;
   loading: Ref<boolean>;
   error: Ref<string | null>;
-  search: (searchQuery: string) => Promise<void>;
+  lookup: (username: string) => Promise<void>;
   clear: () => void;
 }
 
 /**
- * Composable for searching Telegram channels.
- * Provides debounced search functionality with loading and error states.
+ * Composable for looking up a Telegram channel by exact username.
  */
-export function useChannelSearch(): UseChannelSearchReturn {
+export function useChannelSearch(): UseChannelLookupReturn {
   const query = ref('');
-  const results = ref<SourceChannel[]>([]);
+  const result = ref<SourceChannel | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
-  let debounceTimeout: NodeJS.Timeout | null = null;
-
-  const search = async (searchQuery: string): Promise<void> => {
-    query.value = searchQuery;
+  const lookup = async (username: string): Promise<void> => {
+    query.value = username;
     error.value = null;
 
-    // Clear previous timeout
-    if (debounceTimeout) {
-      clearTimeout(debounceTimeout);
-    }
-
-    // Don't search for empty or very short queries
-    if (!searchQuery || searchQuery.trim().length < 2) {
-      results.value = [];
-      loading.value = false;
+    if (!username || !username.trim()) {
+      result.value = null;
       return;
     }
 
-    // Debounce the search
-    debounceTimeout = setTimeout(async () => {
-      loading.value = true;
+    loading.value = true;
 
-      try {
-        const response = await $fetch<{ channels: SourceChannel[]; total: number }>(
-          '/api/channels/search',
-          {
-            params: { q: searchQuery.trim() },
-          }
-        );
+    try {
+      const { $api } = useNuxtApp();
+      const response = await $api<{ channel: SourceChannel }>(
+        '/channels/lookup',
+        {
+          params: { username: username.trim() },
+        }
+      );
 
-        results.value = response.channels;
-      } catch (err: any) {
-        console.error('Channel search failed:', err);
-        error.value = err?.data?.message || 'Failed to search channels';
-        results.value = [];
-      } finally {
-        loading.value = false;
+      result.value = response.channel;
+    } catch (err: any) {
+      console.error('Channel lookup failed:', err);
+
+      if (err?.statusCode === 404 || err?.status === 404) {
+        error.value = 'Channel not found';
+      } else if (err?.statusCode === 401 && err?.data?.requiresReauth === true) {
+        error.value = 'Your Telegram session has expired. Please reconnect.';
+
+        const { $toast } = useNuxtApp();
+        if ($toast) {
+          $toast.error('Telegram session expired', {
+            description: 'Please reconnect your Telegram account.',
+            action: {
+              label: 'Reconnect',
+              onClick: () => navigateTo('/setup/telegram'),
+            },
+          });
+        } else {
+          setTimeout(() => navigateTo('/setup/telegram'), 2000);
+        }
+      } else {
+        error.value = err?.data?.message || 'Failed to look up channel';
       }
-    }, 300); // 300ms debounce
+
+      result.value = null;
+    } finally {
+      loading.value = false;
+    }
   };
 
   const clear = (): void => {
     query.value = '';
-    results.value = [];
+    result.value = null;
     error.value = null;
     loading.value = false;
-
-    if (debounceTimeout) {
-      clearTimeout(debounceTimeout);
-    }
   };
 
   return {
     query,
-    results,
+    result,
     loading,
     error,
-    search,
+    lookup,
     clear,
   };
 }

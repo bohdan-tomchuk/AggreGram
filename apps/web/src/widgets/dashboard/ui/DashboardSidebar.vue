@@ -70,6 +70,8 @@
 </template>
 
 <script setup lang="ts">
+import { useAuthStore } from '@shared/model/stores/authStore'
+
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -83,16 +85,6 @@ const navItems = [
     label: 'Dashboard',
     icon: 'i-lucide-layout-dashboard',
     path: '/',
-  },
-  {
-    label: 'Feeds',
-    icon: 'i-lucide-rss',
-    path: '/feeds',
-  },
-  {
-    label: 'Settings',
-    icon: 'i-lucide-settings',
-    path: '/settings',
   },
 ]
 
