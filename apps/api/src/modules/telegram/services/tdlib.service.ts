@@ -3,15 +3,19 @@ import {
   OnModuleDestroy,
   Logger,
   BadRequestException,
-  TooManyRequestsException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { getTdjson } from 'prebuilt-tdlib';
 import * as tdl from 'tdl';
 import * as path from 'path';
 import * as QRCode from 'qrcode';
 import type { TelegramAuthStep } from '@aggregram/types';
+import { TelegramConnection } from '../entities/telegram-connection.entity';
 
 // Configure tdl to use prebuilt TDLib binaries
 tdl.configure({ tdjson: getTdjson() });
@@ -40,24 +44,47 @@ export class TdlibService implements OnModuleDestroy {
   private readonly apiId: number;
   private readonly apiHash: string;
   private readonly databaseDir: string;
+  private readonly restorationAttempts = new Map<
+    string,
+    { inProgress: boolean; lastAttempt: number }
+  >();
+  private readonly RESTORATION_COOLDOWN_MS = 60000; // 60 seconds
 
   constructor(
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
+    @InjectRepository(TelegramConnection)
+    private readonly connectionRepo: Repository<TelegramConnection>,
   ) {
     this.apiId = this.configService.get<number>('telegram.apiId')!;
     this.apiHash = this.configService.get<string>('telegram.apiHash')!;
     this.databaseDir = this.configService.get<string>('telegram.databaseDir')!;
   }
 
-  getClient(userId: string): tdl.Client {
+  async getClient(userId: string): Promise<tdl.Client> {
     const client = this.clients.get(userId);
-    if (!client) {
-      throw new BadRequestException(
-        'No active Telegram session. Please authenticate first.',
-      );
+    if (client) {
+      return client;
     }
-    return client;
+
+    // Attempt to restore session from disk
+    this.logger.debug(`No client in memory for user ${userId}, attempting session restoration...`);
+    const restored = await this.restoreSession(userId);
+    
+    if (restored) {
+      const restoredClient = this.clients.get(userId);
+      if (restoredClient) {
+        return restoredClient;
+      }
+    }
+
+    // Session restoration failed - throw 401
+    const error = new HttpException(
+      'Telegram session expired. Please reconnect your account.',
+      HttpStatus.UNAUTHORIZED,
+    );
+    (error as any).requiresReauth = true;
+    throw error;
   }
 
   getOrCreateClient(userId: string): tdl.Client {
@@ -115,6 +142,187 @@ export class TdlibService implements OnModuleDestroy {
       this.authContexts.delete(userId);
       this.logger.log(`Destroyed TDLib client for user ${userId}`);
     }
+  }
+
+  /**
+   * Attempt to restore a TDLib session from disk.
+   * Returns true if session was successfully restored and verified.
+   */
+  async restoreSession(userId: string): Promise<boolean> {
+    // Check database-level backoff first
+    const shouldRestore = await this.shouldAttemptRestoration(userId);
+    if (!shouldRestore) {
+      return false;
+    }
+
+    // Check if restoration already in progress (in-memory check)
+    const attempt = this.restorationAttempts.get(userId);
+    if (attempt?.inProgress) {
+      this.logger.debug(`Restoration already in progress for user ${userId}`);
+      return false;
+    }
+
+    // Check cooldown period (in-memory check)
+    if (attempt) {
+      const elapsed = Date.now() - attempt.lastAttempt;
+      if (elapsed < this.RESTORATION_COOLDOWN_MS) {
+        this.logger.debug(
+          `Restoration cooldown for user ${userId}: ${
+            this.RESTORATION_COOLDOWN_MS - elapsed
+          }ms remaining`,
+        );
+        return false;
+      }
+    }
+
+    // Mark restoration in progress
+    this.restorationAttempts.set(userId, {
+      inProgress: true,
+      lastAttempt: Date.now(),
+    });
+
+    try {
+      const client = this.getOrCreateClient(userId);
+
+      const result = await new Promise<boolean>((resolve) => {
+        const timeout = setTimeout(() => {
+          this.logger.warn(`Session restoration timed out for user ${userId}`);
+          this.eventEmitter.emit('telegram.session.expired', { userId });
+          resolve(false);
+        }, 10000);
+
+        const handler = async (update: any) => {
+          if (update._ === 'updateAuthorizationState') {
+            const state = update.authorization_state._;
+
+            if (state === 'authorizationStateReady') {
+              clearTimeout(timeout);
+              client.off('update', handler);
+
+              // Verify session works by calling getMe
+              try {
+                await client.invoke({ _: 'getMe' });
+                this.logger.log(`Session successfully restored for user ${userId}`);
+                resolve(true);
+              } catch (err) {
+                this.logger.warn(`Restored session failed verification for user ${userId}:`, err);
+                this.eventEmitter.emit('telegram.session.expired', { userId });
+                resolve(false);
+              }
+            } else if (
+              state === 'authorizationStateWaitPhoneNumber' ||
+              state === 'authorizationStateWaitOtherDeviceConfirmation' ||
+              state === 'authorizationStateClosed'
+            ) {
+              clearTimeout(timeout);
+              client.off('update', handler);
+              this.logger.warn(`Session restoration failed for user ${userId}: state=${state}`);
+              this.eventEmitter.emit('telegram.session.expired', { userId });
+              resolve(false);
+            }
+          }
+        };
+
+        client.on('update', handler);
+      });
+
+      // Update attempt tracking
+      this.restorationAttempts.set(userId, {
+        inProgress: false,
+        lastAttempt: Date.now(),
+      });
+
+      // Track restoration result in database
+      await this.trackRestorationAttempt(userId, result);
+
+      return result;
+    } catch (error) {
+      this.logger.error(`Error during session restoration for user ${userId}:`, error);
+      this.eventEmitter.emit('telegram.session.expired', { userId });
+
+      // Update attempt tracking on failure
+      this.restorationAttempts.set(userId, {
+        inProgress: false,
+        lastAttempt: Date.now(),
+      });
+
+      // Track failure in database
+      await this.trackRestorationAttempt(userId, false);
+
+      return false;
+    } finally {
+      // Cleanup stale entries (older than 1 hour)
+      this.cleanupStaleRestorationAttempts();
+    }
+  }
+
+  private cleanupStaleRestorationAttempts(): void {
+    const oneHourAgo = Date.now() - 3600000;
+    for (const [userId, attempt] of this.restorationAttempts.entries()) {
+      if (attempt.lastAttempt < oneHourAgo) {
+        this.restorationAttempts.delete(userId);
+      }
+    }
+  }
+
+  /**
+   * Check if restoration should be attempted based on exponential backoff
+   */
+  private async shouldAttemptRestoration(userId: string): Promise<boolean> {
+    const connection = await this.connectionRepo.findOneBy({ userId });
+    if (!connection || connection.sessionStatus !== 'active') {
+      return false;
+    }
+
+    // Apply exponential backoff based on failure count
+    if (connection.restorationFailureCount > 0) {
+      const backoffMs = Math.min(
+        1000 * Math.pow(2, connection.restorationFailureCount), // 2s, 4s, 8s, 16s, 32s...
+        3600000, // Max 1 hour
+      );
+
+      const lastAttempt = connection.lastRestorationAttemptAt?.getTime() || 0;
+      const elapsed = Date.now() - lastAttempt;
+
+      if (elapsed < backoffMs) {
+        this.logger.debug(
+          `Restoration backoff for user ${userId}: ${backoffMs - elapsed}ms remaining (failure count: ${connection.restorationFailureCount})`,
+        );
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Track restoration attempt outcome in database
+   */
+  private async trackRestorationAttempt(
+    userId: string,
+    success: boolean,
+  ): Promise<void> {
+    const connection = await this.connectionRepo.findOneBy({ userId });
+    if (!connection) return;
+
+    if (success) {
+      // Reset on successful restoration
+      connection.restorationState = undefined;
+      connection.restorationFailureCount = 0;
+      connection.lastActivityAt = new Date();
+      this.logger.debug(`Restoration tracking reset for user ${userId}`);
+    } else {
+      // Increment failure count
+      connection.restorationState = 'failed';
+      connection.lastRestorationAttemptAt = new Date();
+      connection.restorationFailureCount =
+        (connection.restorationFailureCount || 0) + 1;
+      this.logger.debug(
+        `Restoration failure tracked for user ${userId} (count: ${connection.restorationFailureCount})`,
+      );
+    }
+
+    await this.connectionRepo.save(connection);
   }
 
   getAuthContext(userId: string): AuthContext | undefined {
@@ -321,7 +529,7 @@ export class TdlibService implements OnModuleDestroy {
    */
   async submit2FA(userId: string, password: string): Promise<void> {
     const ctx = this.authContexts.get(userId);
-    const client = this.getClient(userId);
+    const client = await this.getClient(userId);
     
     if (!ctx || ctx.step !== 'awaiting_2fa') {
       throw new BadRequestException(
@@ -595,19 +803,38 @@ export class TdlibService implements OnModuleDestroy {
    * Search for public Telegram channels/chats by query.
    */
   async searchPublicChats(userId: string, query: string): Promise<any[]> {
-    const client = this.getClient(userId);
+    const client = await this.getClient(userId);
 
     try {
       const result = await client.invoke({
         _: 'searchPublicChats',
         query,
       }) as { chat_ids: number[] };
-
+      
       // Get full chat info for each result
       const chats = await Promise.all(
         result.chat_ids.map(async (chatId) => {
           try {
-            return await this.getChat(userId, chatId);
+            const chat = await this.getChat(userId, chatId);
+            
+            // For supergroups/channels, fetch additional details including username
+            if (chat.type?._ === 'chatTypeSupergroup') {
+              const supergroupId = chat.type.supergroup_id;
+              const supergroup = await client.invoke({
+                _: 'getSupergroup',
+                supergroup_id: supergroupId,
+              }) as any;
+              
+              // Merge supergroup data into chat object
+              return {
+                ...chat,
+                username: supergroup.usernames?.active_usernames?.[0] || supergroup.username,
+                memberCount: supergroup.member_count,
+                isChannel: supergroup.is_channel,
+              };
+            }
+            
+            return chat;
           } catch (err) {
             this.logger.warn(`Failed to get chat ${chatId}:`, err);
             return null;
@@ -626,7 +853,7 @@ export class TdlibService implements OnModuleDestroy {
    * Get detailed information about a chat by ID.
    */
   async getChat(userId: string, chatId: number): Promise<any> {
-    const client = this.getClient(userId);
+    const client = await this.getClient(userId);
 
     try {
       const chat = await client.invoke({
@@ -645,7 +872,7 @@ export class TdlibService implements OnModuleDestroy {
    * Get full information about a supergroup/channel.
    */
   async getSupergroupFullInfo(userId: string, supergroupId: number): Promise<any> {
-    const client = this.getClient(userId);
+    const client = await this.getClient(userId);
 
     try {
       const fullInfo = await client.invoke({
@@ -664,7 +891,7 @@ export class TdlibService implements OnModuleDestroy {
    * Get a chat by username.
    */
   async searchPublicChat(userId: string, username: string): Promise<any> {
-    const client = this.getClient(userId);
+    const client = await this.getClient(userId);
 
     try {
       // Remove @ if present
@@ -686,7 +913,7 @@ export class TdlibService implements OnModuleDestroy {
    * Create a new Telegram channel using user's session.
    */
   async createChannel(userId: string, title: string, description: string): Promise<number> {
-    const client = this.getClient(userId);
+    const client = await this.getClient(userId);
 
     try {
       const result = await client.invoke({
@@ -706,67 +933,159 @@ export class TdlibService implements OnModuleDestroy {
   }
 
   /**
-   * Add a bot as admin to a channel with posting permissions.
+   * Add a bot as a member to a channel.
+   * This must be done before promoting the bot to admin.
    */
-  async addBotAsAdmin(userId: string, channelId: number, botUserId: string): Promise<void> {
-    const client = this.getClient(userId);
-
+  async addBotToChannel(userId: string, channelId: number, botUserId: string): Promise<void> {
+    const client = await this.getClient(userId);
+    
     try {
       await client.invoke({
-        _: 'setChatMemberStatus',
+        _: 'addChatMember',
         chat_id: channelId,
-        member_id: {
-          _: 'messageSenderUser',
-          user_id: parseInt(botUserId, 10),
-        },
-        status: {
-          _: 'chatMemberStatusAdministrator',
-          custom_title: '',
-          can_be_edited: false,
-          rights: {
-            _: 'chatAdministratorRights',
-            can_manage_chat: true,
-            can_change_info: false,
-            can_post_messages: true,
-            can_edit_messages: true,
-            can_delete_messages: true,
-            can_invite_users: false,
-            can_restrict_members: false,
-            can_pin_messages: false,
-            can_manage_topics: false,
-            can_promote_members: false,
-            can_manage_video_chats: false,
-            can_post_stories: false,
-            can_edit_stories: false,
-            can_delete_stories: false,
-            is_anonymous: false,
-          },
-        },
+        user_id: parseInt(botUserId, 10),
+        forward_limit: 0, // Don't forward any history
       });
-
-      this.logger.log(`Added bot ${botUserId} as admin to channel ${channelId}`);
+      
+      this.logger.log(`Added bot ${botUserId} as member to channel ${channelId}`);
     } catch (error) {
-      this.logger.error(`Failed to add bot as admin to channel ${channelId}:`, error);
-      throw new BadRequestException('Failed to add bot as channel admin');
+      // Ignore if already a member
+      if (!error.message?.includes('USER_ALREADY_PARTICIPANT')) {
+        this.logger.error(`Failed to add bot to channel ${channelId}:`, error);
+        throw new BadRequestException('Failed to add bot to channel');
+      }
+      this.logger.debug(`Bot ${botUserId} already in channel ${channelId}`);
     }
   }
 
   /**
-   * Get an invite link for a channel.
+   * Add a bot as admin to a channel with posting permissions.
+   * For channels, bots cannot be added as regular members - they must be directly promoted to admin.
    */
-  async getInviteLink(userId: string, channelId: number): Promise<string> {
-    const client = this.getClient(userId);
+  async addBotAsAdmin(userId: string, channelId: number, botUsername: string): Promise<void> {
+    const client = await this.getClient(userId);
+
+    // Step 1: Resolve bot by username to get the actual user_id
+    // This is required because TDLib needs to know about the bot before we can add it
+    this.logger.log(`Resolving bot @${botUsername} for user ${userId}`);
+    let botUserId: number;
 
     try {
-      const result = await client.invoke({
+      const botChat = await this.searchPublicChat(userId, botUsername);
+
+      // Extract user_id from the bot chat
+      if (botChat.type?._ === 'chatTypePrivate') {
+        botUserId = botChat.type.user_id;
+        this.logger.log(`Resolved bot @${botUsername} to user_id ${botUserId}`);
+      } else {
+        throw new BadRequestException('Invalid bot username - not a private chat');
+      }
+    } catch (error) {
+      this.logger.error(`Failed to resolve bot @${botUsername}:`, error);
+      throw new BadRequestException('Failed to find bot. Make sure the bot exists.');
+    }
+
+    // Step 2: Directly promote bot to admin (bots cannot be added as regular members in channels)
+    // Use retry logic to handle race conditions
+    const maxRetries = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await client.invoke({
+          _: 'setChatMemberStatus',
+          chat_id: channelId,
+          member_id: {
+            _: 'messageSenderUser',
+            user_id: botUserId,
+          },
+          status: {
+            _: 'chatMemberStatusAdministrator',
+            custom_title: '',
+            can_be_edited: false,
+            rights: {
+              _: 'chatAdministratorRights',
+              can_manage_chat: true,
+              can_change_info: false,
+              can_post_messages: true,
+              can_edit_messages: true,
+              can_delete_messages: true,
+              can_invite_users: false,
+              can_restrict_members: false,
+              can_pin_messages: false,
+              can_manage_topics: false,
+              can_promote_members: false,
+              can_manage_video_chats: false,
+              can_post_stories: false,
+              can_edit_stories: false,
+              can_delete_stories: false,
+              is_anonymous: false,
+            },
+          },
+        });
+
+        this.logger.log(`Added bot @${botUsername} (${botUserId}) as admin to channel ${channelId}`);
+        return; // Success!
+
+      } catch (error) {
+        lastError = error;
+
+        // Retry on certain errors with exponential backoff
+        const shouldRetry = attempt < maxRetries && (
+          error.message?.includes('Member not found') ||
+          error.message?.includes('Try again later') ||
+          error.message?.includes('FLOOD_WAIT')
+        );
+
+        if (shouldRetry) {
+          const waitTime = 1000 * Math.pow(2, attempt); // Exponential backoff: 2s, 4s
+          this.logger.warn(`Retry ${attempt}/${maxRetries} for adding bot as admin. Error: ${error.message}. Waiting ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        } else {
+          break;
+        }
+      }
+    }
+
+    // All retries failed
+    this.logger.error(`Failed to add bot as admin to channel ${channelId}:`, lastError);
+    throw new BadRequestException('Failed to add bot as channel admin');
+  }
+
+  /**
+   * Get or create an invite link for a channel.
+   * For newly created channels, this generates a new primary invite link.
+   */
+  async getInviteLink(userId: string, channelId: number): Promise<string> {
+    const client = await this.getClient(userId);
+
+    try {
+      // First try to get existing primary invite link
+      const existingLink = await client.invoke({
         _: 'getChatInviteLink',
         chat_id: channelId,
       }) as { invite_link: string };
 
+      if (existingLink?.invite_link) {
+        return existingLink.invite_link;
+      }
+    } catch (error) {
+      // If no primary link exists, we'll create one below
+      this.logger.debug(`No existing invite link for channel ${channelId}, creating new one`);
+    }
+
+    try {
+      // Create a new primary invite link
+      const result = await client.invoke({
+        _: 'replacePrimaryChatInviteLink',
+        chat_id: channelId,
+      }) as { invite_link: string };
+
+      this.logger.log(`Created invite link for channel ${channelId}: ${result.invite_link}`);
       return result.invite_link;
     } catch (error) {
-      this.logger.error(`Failed to get invite link for channel ${channelId}:`, error);
-      throw new BadRequestException('Failed to get channel invite link');
+      this.logger.error(`Failed to create invite link for channel ${channelId}:`, error);
+      throw new BadRequestException('Failed to create channel invite link');
     }
   }
 
@@ -783,7 +1102,7 @@ export class TdlibService implements OnModuleDestroy {
     fromMessageId: number = 0,
     limit: number = 100,
   ): Promise<any[]> {
-    const client = this.getClient(userId);
+    const client = await this.getClient(userId);
 
     try {
       const result = await client.invoke({
@@ -842,8 +1161,9 @@ export class TdlibService implements OnModuleDestroy {
             toChatId,
             retryAfter,
           });
-          const exception = new TooManyRequestsException(
+          const exception = new HttpException(
             `Rate limited. Retry after ${retryAfter} seconds`,
+            HttpStatus.TOO_MANY_REQUESTS,
           );
           // Add retry-after as a custom property
           (exception as any).retryAfter = retryAfter;
@@ -866,7 +1186,7 @@ export class TdlibService implements OnModuleDestroy {
       );
       if (
         error instanceof BadRequestException ||
-        error instanceof TooManyRequestsException
+        error instanceof HttpException
       ) {
         throw error;
       }
@@ -874,7 +1194,7 @@ export class TdlibService implements OnModuleDestroy {
     }
   }
 
-  private mapTdlibError(error: unknown): BadRequestException | TooManyRequestsException {
+  private mapTdlibError(error: unknown): BadRequestException | HttpException {
     if (error instanceof Error) {
       const msg = error.message;
 
@@ -894,8 +1214,9 @@ export class TdlibService implements OnModuleDestroy {
       }
       if (msg.includes('FLOOD_WAIT')) {
         const seconds = msg.match(/FLOOD_WAIT_(\d+)/)?.[1] || '60';
-        const exception = new TooManyRequestsException(
+        const exception = new HttpException(
           `Rate limited. Please wait ${seconds} seconds`,
+          HttpStatus.TOO_MANY_REQUESTS,
         );
         (exception as any).retryAfter = parseInt(seconds, 10);
         return exception;

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as tdl from 'tdl';
 import { TdlibService } from './tdlib.service';
 import { UserBot } from '../entities/user-bot.entity';
 import { encrypt } from '../../../common/utils/encryption.util';
@@ -34,7 +35,7 @@ export class BotFactoryService {
   async createBot(
     userId: string,
   ): Promise<{ botUsername: string; botTelegramId: string }> {
-    const client = this.tdlibService.getClient(userId);
+    const client = await this.tdlibService.getClient(userId);
 
     // 1. Find BotFather chat
     const botFatherChat = (await client.invoke({
@@ -164,7 +165,7 @@ export class BotFactoryService {
    * Registers the update listener before sending to avoid race conditions.
    */
   private sendAndWaitForResponse(
-    client: ReturnType<TdlibService['getClient']>,
+    client: tdl.Client,
     chatId: number,
     text: string,
     timeoutMs = MESSAGE_WAIT_TIMEOUT,

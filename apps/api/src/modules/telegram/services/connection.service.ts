@@ -265,6 +265,30 @@ export class ConnectionService {
   }
 
   /**
+   * Event handler for when a TDLib session expires or fails restoration.
+   * Marks the session as expired in the database.
+   */
+  @OnEvent('telegram.session.expired')
+  async handleSessionExpired(payload: { userId: string }): Promise<void> {
+    this.logger.warn(`Session expired event received for user ${payload.userId}`);
+    await this.markSessionExpired(payload.userId);
+  }
+
+  /**
+   * Mark a user's Telegram session as expired in the database.
+   * Called when session restoration fails or session becomes invalid.
+   */
+  async markSessionExpired(userId: string): Promise<void> {
+    const connection = await this.connectionRepo.findOneBy({ userId });
+    if (connection) {
+      connection.sessionStatus = 'expired';
+      connection.authStep = 'idle';
+      await this.connectionRepo.save(connection);
+      this.logger.log(`Marked Telegram session as expired for user ${userId}`);
+    }
+  }
+
+  /**
    * Called after successful TDLib authorization.
    * Updates DB with telegram user ID and kicks off setup (bot creation).
    */
@@ -421,6 +445,62 @@ export class ConnectionService {
       // Fallback for unencrypted legacy data
       return stored;
     }
+  }
+
+  /**
+   * Track restoration attempt outcome in database
+   */
+  async trackRestorationAttempt(
+    userId: string,
+    success: boolean,
+  ): Promise<void> {
+    const connection = await this.connectionRepo.findOneBy({ userId });
+    if (!connection) return;
+
+    if (success) {
+      // Reset on successful restoration
+      connection.restorationState = undefined;
+      connection.restorationFailureCount = 0;
+      connection.lastActivityAt = new Date();
+    } else {
+      // Increment failure count
+      connection.restorationState = 'failed';
+      connection.lastRestorationAttemptAt = new Date();
+      connection.restorationFailureCount =
+        (connection.restorationFailureCount || 0) + 1;
+    }
+
+    await this.connectionRepo.save(connection);
+  }
+
+  /**
+   * Check if restoration should be attempted based on backoff
+   */
+  async shouldAttemptRestoration(userId: string): Promise<boolean> {
+    const connection = await this.connectionRepo.findOneBy({ userId });
+    if (!connection || connection.sessionStatus !== 'active') {
+      return false;
+    }
+
+    // Apply exponential backoff based on failure count
+    if (connection.restorationFailureCount > 0) {
+      const backoffMs = Math.min(
+        1000 * Math.pow(2, connection.restorationFailureCount), // 2s, 4s, 8s, 16s, 32s...
+        3600000, // Max 1 hour
+      );
+
+      const lastAttempt = connection.lastRestorationAttemptAt?.getTime() || 0;
+      const elapsed = Date.now() - lastAttempt;
+
+      if (elapsed < backoffMs) {
+        this.logger.debug(
+          `Restoration backoff for user ${userId}: ${backoffMs - elapsed}ms remaining (failure count: ${connection.restorationFailureCount})`,
+        );
+        return false;
+      }
+    }
+
+    return true;
   }
 
   private maskPhoneNumber(phone: string): string {

@@ -38,6 +38,28 @@ export class TelegramConnection {
   @Column({ name: 'auth_step', type: 'varchar', default: 'idle' })
   authStep: string;
 
+  @Column({
+    name: 'restoration_state',
+    type: 'enum',
+    enum: ['pending', 'in_progress', 'failed'],
+    nullable: true,
+  })
+  restorationState?: 'pending' | 'in_progress' | 'failed';
+
+  @Column({
+    name: 'last_restoration_attempt_at',
+    type: 'timestamp',
+    nullable: true,
+  })
+  lastRestorationAttemptAt?: Date;
+
+  @Column({
+    name: 'restoration_failure_count',
+    type: 'integer',
+    default: 0,
+  })
+  restorationFailureCount: number;
+
   @Column({ name: 'last_auth_method', type: 'varchar', nullable: true })
   lastAuthMethod: string | null;
 
