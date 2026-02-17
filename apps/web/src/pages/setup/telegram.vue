@@ -83,6 +83,7 @@ import {
   PHONE_STEPS,
   type AuthMethod,
 } from '@features/telegram-wizard/model/types'
+import { useTelegramStore } from '@entities/telegram/model/connectionStore'
 
 definePageMeta({
   middleware: 'auth',
@@ -104,10 +105,32 @@ const twoFaStepIndex = computed(() => {
 
 // --- Lifecycle ---
 onMounted(async () => {
+  const route = useRoute()
+  const reconnect = route.query.reconnect === 'true'
+
+  // Always fetch connection status first
   const status = await telegramStore.fetchConnection()
 
-  if (status?.isConnected && status.step === 'connected') {
-    // Already connected — redirect to dashboard
+  // Sync health status to ensure accurate connection state
+  if (status?.step === 'connected') {
+    await telegramStore.syncSessionHealth()
+  }
+
+  // Handle reconnection flow
+  if (reconnect) {
+    // Reset wizard state only if not already reset by health check
+    if (telegramStore.wizardStep !== 'idle') {
+      telegramStore.reset(true) // Preserve resume context
+    }
+    // Pre-select auth method from resume context if available
+    if (telegramStore.resumeMethod) {
+      telegramStore.authMethod = telegramStore.resumeMethod
+    }
+    return
+  }
+
+  // If already truly connected, redirect to dashboard
+  if (telegramStore.isConnected) {
     navigateTo('/')
     return
   }

@@ -85,6 +85,7 @@ const formattedCountdown = computed(() => {
 })
 
 function startTimer() {
+  if (!import.meta.client) return
   resendCountdown.value = RESEND_SECONDS
   timer = setInterval(() => {
     if (resendCountdown.value > 0) {

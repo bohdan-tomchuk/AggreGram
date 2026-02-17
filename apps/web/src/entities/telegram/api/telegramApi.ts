@@ -7,6 +7,17 @@ import type {
   MessageResponse,
 } from '@aggregram/types'
 
+export interface SessionHealthResponse {
+  status: 'connected' | 'disconnected' | 'error'
+  userId: string
+  authorized: boolean
+  sessionStatus?: 'active' | 'expired' | 'revoked'
+  telegramUserId?: string
+  message: string
+  timestamp: string
+  error?: string
+}
+
 export function telegramApi($api: typeof $fetch) {
   return {
     initConnection(method: 'qr' | 'phone') {
@@ -50,6 +61,12 @@ export function telegramApi($api: typeof $fetch) {
     disconnect() {
       return $api<MessageResponse>('/telegram/connection', {
         method: 'DELETE',
+      })
+    },
+
+    getSessionHealth() {
+      return $api<SessionHealthResponse>('/health/session', {
+        method: 'GET',
       })
     },
   }

@@ -37,13 +37,30 @@ export const useTelegramStore = defineStore('telegram', () => {
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let qrPollTimer: ReturnType<typeof setInterval> | null = null
+  let healthCheckTimer: ReturnType<typeof setInterval> | null = null
+
+  // Session health status from backend
+  const sessionHealthStatus = ref<'connected' | 'disconnected' | 'expired' | null>(null)
 
   // --- Computed ---
-  const isConnected = computed(() => wizardStep.value === 'connected')
+  const isConnected = computed(() =>
+    wizardStep.value === 'connected' &&
+    sessionHealthStatus.value === 'connected'
+  )
+
+  // For UI states where we want to show "connected" when health status is unknown
+  const isConnectedOrUnknown = computed(() =>
+    wizardStep.value === 'connected' &&
+    (sessionHealthStatus.value === 'connected' || sessionHealthStatus.value === null)
+  )
 
   // --- Actions ---
 
-  function reset() {
+  function reset(preserveResume = false) {
+    // Save resume context if preserving
+    const savedResumeMethod = preserveResume ? resumeMethod.value : null
+    const savedResumePhone = preserveResume ? resumePhone.value : ''
+
     wizardStep.value = 'idle'
     authMethod.value = 'qr'
     loading.value = false
@@ -63,6 +80,12 @@ export const useTelegramStore = defineStore('telegram', () => {
     ]
     stopPolling()
     stopQrPolling()
+
+    // Restore resume context if preserving
+    if (preserveResume) {
+      resumeMethod.value = savedResumeMethod
+      resumePhone.value = savedResumePhone
+    }
   }
 
   function extractError(e: unknown): string {
@@ -87,6 +110,11 @@ export const useTelegramStore = defineStore('telegram', () => {
 
   function applyStatus(status: TelegramConnectionStatus) {
     wizardStep.value = status.step
+
+    // Set session health when connection is established
+    if (status.step === 'connected') {
+      sessionHealthStatus.value = 'connected'
+    }
 
     if (status.qrCodeUrl) qrCodeUrl.value = status.qrCodeUrl
     if (status.twoFactorHint) twoFactorHint.value = status.twoFactorHint
@@ -247,6 +275,7 @@ export const useTelegramStore = defineStore('telegram', () => {
   // --- Polling for setup progress ---
 
   function startPolling() {
+    if (!import.meta.client) return
     stopPolling()
     pollTimer = setInterval(async () => {
       try {
@@ -258,6 +287,7 @@ export const useTelegramStore = defineStore('telegram', () => {
 
         if (status.step === 'connected') {
           wizardStep.value = 'connected'
+          sessionHealthStatus.value = 'connected'
           if (status.botUsername) botUsername.value = status.botUsername
           stopPolling()
         } else if (status.step === 'error') {
@@ -283,6 +313,7 @@ export const useTelegramStore = defineStore('telegram', () => {
   // --- QR polling: detect scan, new QR, or state changes ---
 
   function startQrPolling() {
+    if (!import.meta.client) return
     stopQrPolling()
     qrPollTimer = setInterval(async () => {
       try {
@@ -311,6 +342,54 @@ export const useTelegramStore = defineStore('telegram', () => {
     }
   }
 
+  // --- Session Health Sync ---
+
+  async function syncSessionHealth() {
+    try {
+      const health = await api.getSessionHealth()
+
+      // Update session health status - map API response to our internal status
+      if (health.sessionStatus === 'expired' || health.sessionStatus === 'revoked') {
+        sessionHealthStatus.value = 'expired'
+      } else if (health.status === 'connected') {
+        sessionHealthStatus.value = 'connected'
+      } else if (health.status === 'disconnected' || health.status === 'error') {
+        sessionHealthStatus.value = 'disconnected'
+      }
+
+      // Auto-reset wizard state when session expires
+      if ((health.sessionStatus === 'expired' || health.sessionStatus === 'revoked') && wizardStep.value === 'connected') {
+        // Reset all wizard state but preserve resume context for better UX
+        reset(true)
+        toast.add({
+          title: 'Telegram Session Expired',
+          description: 'Your Telegram connection has expired. Please reconnect.',
+          color: 'warning'
+        })
+      }
+    } catch (error) {
+      // Session check failed - user likely not authenticated yet or network issue
+      // Don't update sessionHealthStatus to avoid false negatives
+      console.debug('Session health check failed:', error)
+    }
+  }
+
+  function startHealthCheck() {
+    if (!import.meta.client) return
+    stopHealthCheck()
+    // Initial sync
+    syncSessionHealth()
+    // Poll every 60 seconds
+    healthCheckTimer = setInterval(syncSessionHealth, 60000)
+  }
+
+  function stopHealthCheck() {
+    if (healthCheckTimer) {
+      clearInterval(healthCheckTimer)
+      healthCheckTimer = null
+    }
+  }
+
   return {
     // State
     wizardStep,
@@ -325,8 +404,10 @@ export const useTelegramStore = defineStore('telegram', () => {
     setupStages,
     resumeMethod,
     resumePhone,
+    sessionHealthStatus,
     // Computed
     isConnected,
+    isConnectedOrUnknown,
     // Actions
     reset,
     fetchConnection,
@@ -339,5 +420,8 @@ export const useTelegramStore = defineStore('telegram', () => {
     disconnect,
     stopPolling,
     stopQrPolling,
+    syncSessionHealth,
+    startHealthCheck,
+    stopHealthCheck,
   }
 })
