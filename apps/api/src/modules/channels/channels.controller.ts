@@ -5,6 +5,7 @@ import {
   Param,
   UseGuards,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -18,29 +19,34 @@ import { ChannelsService } from './channels.service';
 export class ChannelsController {
   constructor(private readonly channelsService: ChannelsService) {}
 
-  @Get('search')
-  @ApiOperation({ summary: 'Search public Telegram channels' })
-  @ApiQuery({ name: 'q', description: 'Search query', required: true })
-  @ApiResponse({ status: 200, description: 'Search results' })
-  @ApiResponse({ status: 400, description: 'Invalid query' })
+  @Get('lookup')
+  @ApiOperation({ summary: 'Look up a public Telegram channel by exact username' })
+  @ApiQuery({ name: 'username', description: 'Channel username (with or without @)', required: true })
+  @ApiResponse({ status: 200, description: 'Channel found' })
+  @ApiResponse({ status: 400, description: 'Invalid username' })
+  @ApiResponse({ status: 404, description: 'Channel not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async search(@CurrentUser('sub') userId: string, @Query('q') query: string) {
-    if (!query) {
-      throw new BadRequestException('Query parameter "q" is required');
+  async lookup(@CurrentUser('id') userId: string, @Query('username') username: string) {
+    if (!username || !username.trim()) {
+      throw new BadRequestException('Query parameter "username" is required');
     }
 
-    const channels = await this.channelsService.searchPublicChannels(userId, query);
-    return {
-      channels,
-      total: channels.length,
-    };
+    try {
+      const channel = await this.channelsService.lookupChannelByUsername(userId, username.trim());
+      return { channel };
+    } catch (err: any) {
+      if (err?.status === 400 || err?.name === 'BadRequestException') {
+        throw new NotFoundException('Channel not found');
+      }
+      throw err;
+    }
   }
 
   @Get('subscriptions')
   @ApiOperation({ summary: 'Get user\'s joined channels' })
   @ApiResponse({ status: 200, description: 'User subscriptions retrieved' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getSubscriptions(@CurrentUser('sub') userId: string) {
+  async getSubscriptions(@CurrentUser('id') userId: string) {
     const channels = await this.channelsService.getUserSubscriptions(userId);
     return {
       channels,
@@ -54,7 +60,7 @@ export class ChannelsController {
   @ApiResponse({ status: 400, description: 'Invalid username or not a channel' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getByUsername(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
     @Param('username') username: string,
   ) {
     return this.channelsService.getChannelByUsername(userId, username);

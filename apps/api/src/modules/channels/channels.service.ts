@@ -15,32 +15,11 @@ export class ChannelsService {
   ) {}
 
   /**
-   * Search for public Telegram channels by query.
-   * Returns channels from TDLib and upserts them to the database.
+   * Look up a single public Telegram channel by exact username.
    */
-  async searchPublicChannels(userId: string, query: string): Promise<SourceChannel[]> {
-    if (!query || query.trim().length < 2) {
-      throw new BadRequestException('Search query must be at least 2 characters');
-    }
-
-    const chats = await this.tdlibService.searchPublicChats(userId, query.trim());
-
-    // Filter to only channels and map to SourceChannel format
-    const channels: SourceChannel[] = [];
-
-    for (const chat of chats) {
-      // Only process channels (not groups or private chats)
-      if (chat.type?._ !== 'chatTypeSupergroup') continue;
-      if (!chat.type.is_channel) continue;
-
-      const channelData = await this.mapChatToSourceChannel(userId, chat);
-      if (channelData) {
-        const saved = await this.upsertSourceChannel(channelData);
-        channels.push(saved);
-      }
-    }
-
-    return channels;
+  async lookupChannelByUsername(userId: string, username: string): Promise<SourceChannel> {
+    const cleanUsername = username.startsWith('@') ? username.slice(1) : username;
+    return this.getChannelByUsername(userId, cleanUsername);
   }
 
   /**
@@ -53,7 +32,7 @@ export class ChannelsService {
       throw new BadRequestException('Not a valid public channel');
     }
 
-    const channelData = await this.mapChatToSourceChannel(userId, chat);
+    const channelData = await this.mapChatToSourceChannel(userId, chat, username);
     if (!channelData) {
       throw new BadRequestException('Failed to retrieve channel information');
     }
@@ -74,7 +53,7 @@ export class ChannelsService {
   /**
    * Map TDLib chat object to SourceChannel entity.
    */
-  private async mapChatToSourceChannel(userId: string, chat: any): Promise<Partial<SourceChannel> | null> {
+  private async mapChatToSourceChannel(userId: string, chat: any, inputUsername?: string): Promise<Partial<SourceChannel> | null> {
     try {
       const supergroupId = chat.type.supergroup_id;
       const telegramChannelId = String(chat.id);
@@ -94,10 +73,10 @@ export class ChannelsService {
         this.logger.debug(`Could not get full info for channel ${chat.id}`);
       }
 
-      // Extract username from chat
+      // Extract username: prefer TDLib response, fall back to user input
       let username: string | null = null;
-      if (chat.usernames?.active_usernames?.length > 0) {
-        username = chat.usernames.active_usernames[0];
+      if (inputUsername) {
+        username = inputUsername;
       }
 
       // Extract avatar URL if available

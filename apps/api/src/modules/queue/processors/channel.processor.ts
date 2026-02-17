@@ -107,7 +107,7 @@ export class ChannelProcessor implements OnModuleInit, OnModuleDestroy {
 
       // Add bot as admin to the channel
       this.logger.log(`Adding bot as admin to channel ${channelId}`);
-      await this.tdlibService.addBotAsAdmin(userId, channelId, user.userBot.botTelegramId);
+      await this.tdlibService.addBotAsAdmin(userId, channelId, user.userBot.botUsername);
 
       // Get invite link
       this.logger.log(`Generating invite link for channel ${channelId}`);

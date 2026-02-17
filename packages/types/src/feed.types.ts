@@ -44,7 +44,7 @@ export interface FeedChannel {
 }
 
 export interface FeedWithDetails extends Feed {
-  channel: FeedChannel | null;
+  feedChannel: FeedChannel | null;
   sourceCount: number;
 }
 
@@ -68,9 +68,8 @@ export interface FeedSourcesResponse {
   total: number;
 }
 
-export interface ChannelSearchResponse {
-  channels: SourceChannel[];
-  total: number;
+export interface ChannelLookupResponse {
+  channel: SourceChannel;
 }
 
 export type AggregationJobStatus = 'pending' | 'running' | 'completed' | 'failed';

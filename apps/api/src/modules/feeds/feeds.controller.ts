@@ -29,7 +29,7 @@ export class FeedsController {
   @ApiOperation({ summary: 'Create a new feed' })
   @ApiResponse({ status: 201, description: 'Feed created successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async create(@CurrentUser('sub') userId: string, @Body() createFeedDto: CreateFeedDto) {
+  async create(@CurrentUser('id') userId: string, @Body() createFeedDto: CreateFeedDto) {
     return this.feedsService.create(userId, createFeedDto);
   }
 
@@ -37,7 +37,7 @@ export class FeedsController {
   @ApiOperation({ summary: 'Get all feeds for current user' })
   @ApiResponse({ status: 200, description: 'Feeds retrieved successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async findAll(@CurrentUser('sub') userId: string) {
+  async findAll(@CurrentUser('id') userId: string) {
     const feeds = await this.feedsService.findAll(userId);
     return {
       feeds,
@@ -50,7 +50,7 @@ export class FeedsController {
   @ApiResponse({ status: 200, description: 'Feed retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async findOne(@CurrentUser('sub') userId: string, @Param('id') id: string) {
+  async findOne(@CurrentUser('id') userId: string, @Param('id') id: string) {
     return this.feedsService.findOne(userId, id);
   }
 
@@ -60,7 +60,7 @@ export class FeedsController {
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async update(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
     @Param('id') id: string,
     @Body() updateFeedDto: UpdateFeedDto,
   ) {
@@ -73,7 +73,7 @@ export class FeedsController {
   @ApiResponse({ status: 204, description: 'Feed deleted successfully' })
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async delete(@CurrentUser('sub') userId: string, @Param('id') id: string) {
+  async delete(@CurrentUser('id') userId: string, @Param('id') id: string) {
     await this.feedsService.delete(userId, id);
   }
 
@@ -82,7 +82,7 @@ export class FeedsController {
   @ApiResponse({ status: 200, description: 'Sources retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async getSources(@CurrentUser('sub') userId: string, @Param('id') id: string) {
+  async getSources(@CurrentUser('id') userId: string, @Param('id') id: string) {
     const sources = await this.feedsService.getSources(userId, id);
     return {
       sources,
@@ -97,7 +97,7 @@ export class FeedsController {
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async addSource(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
     @Param('id') id: string,
     @Body() addSourceDto: AddSourceDto,
   ) {
@@ -111,7 +111,7 @@ export class FeedsController {
   @ApiResponse({ status: 404, description: 'Feed or source not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async removeSource(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
     @Param('id') id: string,
     @Param('sourceId') sourceId: string,
   ) {
@@ -125,7 +125,7 @@ export class FeedsController {
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async createChannel(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
     @Param('id') id: string,
   ) {
     return this.feedsService.createChannel(userId, id);
@@ -138,7 +138,7 @@ export class FeedsController {
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async syncFeed(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
     @Param('id') id: string,
   ) {
     return this.feedsService.syncFeed(userId, id);
@@ -151,7 +151,7 @@ export class FeedsController {
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async pauseFeed(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
     @Param('id') id: string,
   ) {
     return this.feedsService.pauseFeed(userId, id);
@@ -164,7 +164,7 @@ export class FeedsController {
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async resumeFeed(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
     @Param('id') id: string,
   ) {
     return this.feedsService.resumeFeed(userId, id);
@@ -176,7 +176,7 @@ export class FeedsController {
   @ApiResponse({ status: 404, description: 'Feed not found' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getJobs(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('id') userId: string,
     @Param('id') id: string,
   ) {
     const jobs = await this.feedsService.getJobs(userId, id);

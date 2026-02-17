@@ -33,6 +33,6 @@ import { UsersModule } from '../users/users.module';
     PostProcessor,
     SchedulerService,
   ],
-  exports: [QueueService],
+  exports: [QueueService, SchedulerService],
 })
 export class QueueModule {}

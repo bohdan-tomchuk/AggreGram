@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Feed, FeedStatus } from './entities/feed.entity';
@@ -26,9 +26,7 @@ export class FeedsService {
     private readonly sourceChannelRepository: Repository<SourceChannel>,
     @InjectRepository(AggregationJob)
     private readonly aggregationJobRepository: Repository<AggregationJob>,
-    @Inject(forwardRef(() => QueueService))
     private readonly queueService: QueueService,
-    @Inject(forwardRef(() => SchedulerService))
     private readonly schedulerService: SchedulerService,
     private readonly usersService: UsersService,
     private readonly tdlibService: TdlibService,
