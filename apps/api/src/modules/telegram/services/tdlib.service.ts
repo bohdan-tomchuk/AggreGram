@@ -1105,11 +1105,12 @@ export class TdlibService implements OnModuleDestroy {
     const client = await this.getClient(userId);
 
     try {
+      const offset = fromMessageId === 0 ? 0 : -(limit - 1);
       const result = await client.invoke({
         _: 'getChatHistory',
         chat_id: chatId,
         from_message_id: fromMessageId,
-        offset: -99, // Fetch messages before fromMessageId
+        offset,
         limit: Math.min(limit, 100),
         only_local: false,
       }) as { messages: any[] };

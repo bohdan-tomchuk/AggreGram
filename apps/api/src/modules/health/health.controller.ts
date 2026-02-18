@@ -16,4 +16,14 @@ export class HealthController {
   async getMySessionHealth(@CurrentUser('id') userId: string) {
     return this.healthService.getSessionHealth(userId);
   }
+
+  /**
+   * Get pipeline health: queue depths + recent aggregation jobs.
+   * Requires authentication.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('pipeline')
+  async getPipelineHealth(@CurrentUser('id') userId: string) {
+    return this.healthService.getPipelineHealth(userId);
+  }
 }

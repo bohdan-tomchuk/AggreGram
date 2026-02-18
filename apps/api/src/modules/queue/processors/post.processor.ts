@@ -8,6 +8,7 @@ import { FeedSource } from '../../feeds/entities/feed-source.entity';
 import { AggregationJob, AggregationJobStatus } from '../../feeds/entities/aggregation-job.entity';
 import { UserBot } from '../../telegram/entities/user-bot.entity';
 import { TdlibService } from '../../telegram/services/tdlib.service';
+import { decrypt } from '../../../common/utils/encryption.util';
 
 @Processor('post-queue')
 export class PostProcessor extends WorkerHost {
@@ -71,13 +72,14 @@ export class PostProcessor extends WorkerHost {
       }
 
       const feedChannelId = feed.feedChannel.telegramChannelId;
+      const plainBotToken = decrypt(userBot.botToken);
       let messagesPosted = 0;
 
       // Forward each message
       for (const msg of messages) {
         try {
           await this.tdlibService.forwardMessage(
-            userBot.botToken,
+            plainBotToken,
             msg.sourceChannelId,
             msg.messageId,
             Number(feedChannelId),
