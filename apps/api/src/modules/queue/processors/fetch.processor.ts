@@ -89,9 +89,17 @@ export class FetchProcessor extends WorkerHost {
 
       const messagesToForward: Array<{
         sourceChannelId: number;
+        sourceUsername: string | null;
         messageId: number;
         sourceId: string;
+        contentType: string | null;
+        text: string | null;
+        caption: string | null;
       }> = [];
+      // Track highest message ID seen per source (incl. protected) to advance checkpoints
+      const checkpointAdvances = new Map<string, number>();
+      let totalMessagesSeen = 0; // all new messages seen, including content-protected ones
+      const sourceErrors: string[] = [];
 
       // Fetch messages from each source
       for (const source of feed.feedSources) {
@@ -107,6 +115,24 @@ export class FetchProcessor extends WorkerHost {
             lastMessageId,
           });
 
+          // Ensure TDLib has channel access_hash (needed after session restore)
+          // Also use the chat object to check has_protected_content
+          let chatHasProtection = false;
+          if (source.sourceChannel.username) {
+            const chat = await this.tdlibService.searchPublicChat(userId, source.sourceChannel.username);
+            chatHasProtection = !!chat?.has_protected_content;
+          } else {
+            const chat = await this.tdlibService.getChat(userId, Number(sourceChannelId));
+            chatHasProtection = !!chat?.has_protected_content;
+          }
+
+          if (chatHasProtection) {
+            this.logger.warn({
+              message: 'Source channel has content protection enabled, will skip posting',
+              sourceChannelId,
+            });
+          }
+
           const messages = await this.tdlibService.getChatHistory(
             userId,
             Number(sourceChannelId),
@@ -114,33 +140,62 @@ export class FetchProcessor extends WorkerHost {
             100,
           );
 
-          // Filter and collect messages
-          const validMessages = messages.filter((msg) => {
-            // Skip deleted messages, service messages, etc.
-            if (!msg || msg._ === 'messageDeleted') return false;
-            // Skip messages we've already seen
-            if (lastMessageId > 0 && msg.id <= lastMessageId) return false;
-            return true;
+          this.logger.log({
+            message: 'Raw messages from TDLib',
+            sourceChannelId,
+            lastMessageId,
+            fetchedIds: messages.map((m) => m.id).slice(0, 10),
+            totalFetched: messages.length,
           });
+
+          // Filter and collect messages (oldest first so checkpoint ends at newest)
+          const allNewMessages = messages
+            .filter((msg) => {
+              // Only keep genuine messages (not messageEmpty, updates, etc.)
+              if (!msg || msg._ !== 'message') return false;
+              // Skip messages we've already seen
+              if (lastMessageId > 0 && msg.id <= lastMessageId) return false;
+              return true;
+            })
+            .sort((a, b) => a.id - b.id); // ascending: oldest first
+
+          totalMessagesSeen += allNewMessages.length;
+          const validMessages = chatHasProtection ? [] : allNewMessages;
 
           this.logger.log({
             message: 'Found new messages',
             feedId,
             sourceId: source.id,
             sourceChannelId,
-            newMessages: validMessages.length,
+            newMessages: allNewMessages.length,
+            forwardable: validMessages.length,
+            protected: allNewMessages.length - validMessages.length,
             totalFetched: messages.length,
           });
 
-          // Add to forward list
+          // Add forwardable messages to forward list
           for (const msg of validMessages) {
             messagesToForward.push({
               sourceChannelId: Number(sourceChannelId),
+              sourceUsername: source.sourceChannel.username || null,
               messageId: msg.id,
               sourceId: source.id,
+              contentType: msg.content?._ || null,
+              text: msg.content?.text?.text || null,
+              caption: msg.content?.caption?.text || null,
             });
           }
+
+          // Advance checkpoint even for protected messages we can't forward
+          if (allNewMessages.length > validMessages.length) {
+            const highestSeen = allNewMessages[allNewMessages.length - 1]?.id;
+            if (highestSeen) {
+              checkpointAdvances.set(source.id, highestSeen);
+            }
+          }
         } catch (error) {
+          const errMsg = `Source ${source.sourceChannel.username || source.id}: ${error instanceof Error ? error.message : String(error)}`;
+          sourceErrors.push(errMsg);
           this.logger.error({
             message: 'Failed to fetch messages from source',
             feedId,
@@ -151,8 +206,27 @@ export class FetchProcessor extends WorkerHost {
         }
       }
 
-      // Update aggregation job
-      aggregationJob.messages_fetched = messagesToForward.length;
+      // Advance checkpoints for sources with only protected messages (no forwardable content)
+      for (const [sourceId, highestId] of checkpointAdvances) {
+        const alreadyCovered = messagesToForward.some(
+          (m) => m.sourceId === sourceId,
+        );
+        if (!alreadyCovered) {
+          await this.feedSourceRepository.update(
+            { id: sourceId },
+            { lastMessageId: String(highestId) },
+          );
+          this.logger.log({
+            message: 'Advanced checkpoint for protected-only source',
+            sourceId,
+            newCheckpoint: String(highestId),
+          });
+        }
+      }
+
+      // Update aggregation job — messages_fetched = total seen (incl. protected),
+      // so a value > 0 with messages_posted = 0 indicates content protection blocking forwards
+      aggregationJob.messages_fetched = totalMessagesSeen;
       await this.aggregationJobRepository.save(aggregationJob);
 
       // If we have messages, enqueue post job
@@ -173,6 +247,9 @@ export class FetchProcessor extends WorkerHost {
         // No messages to post, mark job as completed
         aggregationJob.status = AggregationJobStatus.COMPLETED;
         aggregationJob.completed_at = new Date();
+        if (messagesToForward.length === 0 && sourceErrors.length > 0) {
+          aggregationJob.error_message = sourceErrors.join('; ');
+        }
         await this.aggregationJobRepository.save(aggregationJob);
       }
 

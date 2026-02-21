@@ -100,7 +100,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   async enqueuePostJob(
     feedId: string,
     userId: string,
-    messages: Array<{ sourceChannelId: number; messageId: number; sourceId: string }>,
+    messages: Array<{ sourceChannelId: number; sourceUsername: string | null; messageId: number; sourceId: string }>,
     jobId: string,
   ) {
     const job = await this.postQueue.add(

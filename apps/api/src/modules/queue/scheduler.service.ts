@@ -76,10 +76,11 @@ export class SchedulerService implements OnModuleInit {
     try {
       const fetchQueue = this.queueService.getFetchQueue();
 
-      // Remove repeatable job by key
-      await fetchQueue.removeRepeatable('fetch-feed-sources', {
-        every: 0, // Pattern doesn't matter for removal by jobId
-      }, `recurring-fetch-${feedId}`);
+      const repeatableJobs = await fetchQueue.getRepeatableJobs();
+      const job = repeatableJobs.find(j => j.key.includes(`recurring-fetch-${feedId}`));
+      if (job) {
+        await fetchQueue.removeRepeatableByKey(job.key);
+      }
 
       this.logger.log(`Unscheduled feed ${feedId}`);
     } catch (error) {

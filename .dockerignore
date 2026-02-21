@@ -17,3 +17,6 @@ coverage/
 *.temp
 .DS_Store
 .cache/
+tdlib-data/
+**/tdlib-data/
+apps/web/

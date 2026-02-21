@@ -1,5 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bullmq';
+import { ConfigService } from '@nestjs/config';
 import { QueueService } from './queue.service';
 import { ChannelProcessor } from './processors/channel.processor';
 import { FetchProcessor } from './processors/fetch.processor';
@@ -16,6 +18,22 @@ import { UsersModule } from '../users/users.module';
 @Global()
 @Module({
   imports: [
+    BullModule.forRootAsync({
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get<string>('redis.host')!,
+          port: configService.get<number>('redis.port')!,
+          password: configService.get<string>('redis.password'),
+        },
+      }),
+      inject: [ConfigService],
+    }),
+    BullModule.registerQueue(
+      { name: 'channel-queue' },
+      { name: 'fetch-queue' },
+      { name: 'post-queue' },
+      { name: 'health-queue' },
+    ),
     TypeOrmModule.forFeature([
       Feed,
       FeedChannel,

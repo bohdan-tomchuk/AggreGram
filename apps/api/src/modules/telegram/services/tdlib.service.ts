@@ -1104,18 +1104,30 @@ export class TdlibService implements OnModuleDestroy {
   ): Promise<any[]> {
     const client = await this.getClient(userId);
 
-    try {
-      const offset = fromMessageId === 0 ? 0 : -(limit - 1);
-      const result = await client.invoke({
-        _: 'getChatHistory',
-        chat_id: chatId,
-        from_message_id: fromMessageId,
-        offset,
-        limit: Math.min(limit, 100),
-        only_local: false,
-      }) as { messages: any[] };
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 800;
+    const offset = fromMessageId === 0 ? 0 : -(limit - 1);
 
-      return result.messages || [];
+    try {
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const result = await client.invoke({
+          _: 'getChatHistory',
+          chat_id: chatId,
+          from_message_id: fromMessageId,
+          offset,
+          limit: Math.min(limit, 100),
+          only_local: false,
+        }) as { messages: any[] };
+
+        const messages = result.messages || [];
+        if (messages.length > 0 || attempt === MAX_RETRIES - 1) {
+          return messages;
+        }
+        // Empty result — TDLib may still be loading the chat history cache; retry
+        this.logger.debug(`getChatHistory returned empty for chat ${chatId}, retry ${attempt + 1}/${MAX_RETRIES}`);
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      }
+      return [];
     } catch (error) {
       this.logger.error(`Failed to get chat history for chat ${chatId}:`, error);
       throw new BadRequestException('Failed to fetch messages from channel');
@@ -1131,9 +1143,9 @@ export class TdlibService implements OnModuleDestroy {
    */
   async forwardMessage(
     botToken: string,
-    fromChatId: number,
+    fromChatId: number | string,
     messageId: number,
-    toChatId: number,
+    toChatId: number | string,
   ): Promise<any> {
     try {
       const response = await fetch(
@@ -1192,6 +1204,93 @@ export class TdlibService implements OnModuleDestroy {
         throw error;
       }
       throw new BadRequestException('Failed to forward message');
+    }
+  }
+
+  /**
+   * Repost a message (no forwarding header) with a source attribution link.
+   */
+  async repostMessage(
+    botToken: string,
+    fromChatId: number | string,
+    messageId: number,
+    toChatId: number | string,
+    sourceLink: string,
+    contentType: string | null,
+    text: string | null,
+    caption: string | null,
+  ): Promise<any> {
+    const sourceFooter = `\n\n— <a href="${sourceLink}">Source</a>`;
+
+    try {
+      let url: string;
+      let body: Record<string, unknown>;
+
+      if (contentType === 'messageText' && text) {
+        url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+        body = {
+          chat_id: toChatId,
+          text: text + sourceFooter,
+          parse_mode: 'HTML',
+        };
+      } else {
+        url = `https://api.telegram.org/bot${botToken}/copyMessage`;
+        body = {
+          chat_id: toChatId,
+          from_chat_id: fromChatId,
+          message_id: messageId,
+          caption: (caption || '') + sourceFooter,
+          parse_mode: 'HTML',
+        };
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        if (data.error_code === 429) {
+          const retryAfter = data.parameters?.retry_after || 60;
+          this.logger.warn({
+            message: 'Bot API rate limit hit',
+            messageId,
+            fromChatId,
+            toChatId,
+            retryAfter,
+          });
+          const exception = new HttpException(
+            `Rate limited. Retry after ${retryAfter} seconds`,
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+          (exception as any).retryAfter = retryAfter;
+          throw exception;
+        }
+
+        this.logger.error(
+          `Failed to repost message ${messageId}: ${JSON.stringify(data)}`,
+        );
+        throw new BadRequestException(
+          data.description || 'Failed to repost message',
+        );
+      }
+
+      return data.result;
+    } catch (error) {
+      this.logger.error(
+        `Failed to repost message ${messageId} from ${fromChatId} to ${toChatId}:`,
+        error,
+      );
+      if (
+        error instanceof BadRequestException ||
+        error instanceof HttpException
+      ) {
+        throw error;
+      }
+      throw new BadRequestException('Failed to repost message');
     }
   }
 

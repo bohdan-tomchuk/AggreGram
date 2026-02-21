@@ -72,17 +72,41 @@ export class PostProcessor extends WorkerHost {
       }
 
       const feedChannelId = feed.feedChannel.telegramChannelId;
+      this.logger.debug({ message: 'Posting to feed channel', feedChannelId });
+      if (Number(feedChannelId) > 0) {
+        this.logger.error({
+          message: 'feedChannelId is positive — may need -100 prefix!',
+          feedChannelId,
+        });
+      }
       const plainBotToken = decrypt(userBot.botToken);
       let messagesPosted = 0;
 
-      // Forward each message
+      // Repost each message
       for (const msg of messages) {
         try {
-          await this.tdlibService.forwardMessage(
+          // TDLib channel message IDs are multiplied by 1048576 (2^20).
+          // Bot API expects the real message ID. Use division (not >> which overflows 32-bit).
+          const botApiMessageId = Math.floor(msg.messageId / 1048576);
+
+          // Prefer @username for public source channels — more reliable in Bot API
+          const fromChatId = msg.sourceUsername
+            ? `@${msg.sourceUsername}`
+            : msg.sourceChannelId;
+
+          const sourceLink = msg.sourceUsername
+            ? `https://t.me/${msg.sourceUsername}/${botApiMessageId}`
+            : `https://t.me/c/${Math.abs(msg.sourceChannelId)}/${botApiMessageId}`;
+
+          await this.tdlibService.repostMessage(
             plainBotToken,
-            msg.sourceChannelId,
-            msg.messageId,
-            Number(feedChannelId),
+            fromChatId as any,
+            botApiMessageId,
+            feedChannelId,
+            sourceLink,
+            msg.contentType || null,
+            msg.text || null,
+            msg.caption || null,
           );
 
           messagesPosted++;
@@ -110,20 +134,70 @@ export class PostProcessor extends WorkerHost {
           // Small delay to avoid rate limits
           await new Promise((resolve) => setTimeout(resolve, 1000));
         } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          const isFatalChannelError = errMsg.includes('chat not found');
+          const isNotFound =
+            errMsg.includes('message to copy not found') ||
+            errMsg.includes('message not found');
+
+          if (isFatalChannelError) {
+            this.logger.error({
+              message: 'Feed channel inaccessible, aborting post job',
+              feedId,
+              feedChannelId,
+              error: errMsg,
+            });
+            aggregationJob.status = AggregationJobStatus.FAILED;
+            aggregationJob.error_message =
+              `Bot lost access to feed channel (${feedChannelId}). ` +
+              `Ensure the bot is still an admin of the channel.`;
+            aggregationJob.completed_at = new Date();
+            await this.aggregationJobRepository.save(aggregationJob);
+            return { messagesPosted };
+          }
+
           this.logger.error({
-            message: 'Failed to forward message',
+            message: isNotFound
+              ? 'Skipping deleted/unavailable message'
+              : 'Failed to repost message',
             feedId,
             messageId: msg.messageId,
             sourceChannelId: msg.sourceChannelId,
-            error: error instanceof Error ? error.message : String(error),
+            error: errMsg,
           });
+
+          // Advance checkpoint past deleted/unavailable messages to avoid infinite retry
+          if (isNotFound) {
+            await this.feedSourceRepository.update(
+              { id: msg.sourceId },
+              { lastMessageId: String(msg.messageId) },
+            );
+            this.logger.log({
+              message: 'Checkpoint advanced past deleted message',
+              feedId,
+              sourceId: msg.sourceId,
+              messageId: msg.messageId,
+            });
+          }
           // Continue with other messages
         }
       }
 
       // Update aggregation job
       aggregationJob.messages_posted = messagesPosted;
-      aggregationJob.status = AggregationJobStatus.COMPLETED;
+      if (messagesPosted === 0 && messages.length > 0) {
+        aggregationJob.status = AggregationJobStatus.FAILED;
+        aggregationJob.error_message =
+          'All message reposts failed — check bot permissions and channel IDs';
+        this.logger.error({
+          message: 'Post job: all forwards failed',
+          feedId,
+          feedChannelId,
+          messagesAttempted: messages.length,
+        });
+      } else {
+        aggregationJob.status = AggregationJobStatus.COMPLETED;
+      }
       aggregationJob.completed_at = new Date();
       await this.aggregationJobRepository.save(aggregationJob);
 

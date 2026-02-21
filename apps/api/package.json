@@ -17,6 +17,9 @@
   },
   "dependencies": {
     "@aggregram/types": "workspace:*",
+    "@bull-board/api": "^6.19.0",
+    "@bull-board/express": "^6.19.0",
+    "@bull-board/nestjs": "^6.19.0",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.3.0",
     "@nestjs/config": "^3.1.1",

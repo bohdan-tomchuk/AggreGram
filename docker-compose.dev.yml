@@ -35,14 +35,15 @@ services:
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-    container_name: aggregram-api
+      dockerfile: apps/api/Dockerfile.dev
+    container_name: aggregram-api-dev
     restart: unless-stopped
     ports:
       - "${PORT:-3001}:3001"
     env_file:
       - apps/api/.env
     environment:
+      NODE_ENV: development
       DB_HOST: postgres
       REDIS_HOST: redis
       TDLIB_DATABASE_DIR: /data/tdlib
@@ -52,7 +53,10 @@ services:
       redis:
         condition: service_healthy
     volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./packages/types:/app/packages/types
       - tdlib_data:/data/tdlib
+    command: sh -c "cd apps/api && pnpm run dev"
 
 volumes:
   postgres_data:
