@@ -35,14 +35,26 @@
               {{ feed.description }}
             </p>
           </div>
-          <UBadge
-            :color="statusColor"
-            variant="subtle"
-            size="lg"
-            class="capitalize"
-          >
-            {{ feed.status }}
-          </UBadge>
+          <div class="flex items-center gap-3">
+            <UBadge
+              :color="statusColor"
+              variant="subtle"
+              size="lg"
+              class="capitalize"
+            >
+              {{ feed.status }}
+            </UBadge>
+            <UButton
+              icon="i-lucide-trash-2"
+              color="error"
+              variant="outline"
+              size="sm"
+              :loading="deleteLoading"
+              @click="handleDeleteFeed"
+            >
+              Delete
+            </UButton>
+          </div>
         </div>
 
         <!-- Error banner for error status feeds -->
@@ -291,6 +303,7 @@ const sources = ref<FeedSource[]>([])
 const loading = ref(true)
 const channelCreationLoading = ref(false)
 const syncLoading = ref(false)
+const deleteLoading = ref(false)
 const showAddSourceModal = ref(false)
 
 const statusColor = computed(() => {
@@ -381,6 +394,18 @@ async function handleRemoveSource(sourceId: string) {
 
 function manageSources() {
   showAddSourceModal.value = true
+}
+
+async function handleDeleteFeed() {
+  if (!confirm('Are you sure you want to delete this feed? This will also delete the Telegram channel.')) {
+    return
+  }
+  deleteLoading.value = true
+  const success = await feedStore.deleteFeed(feedId.value)
+  deleteLoading.value = false
+  if (success) {
+    await navigateTo('/')
+  }
 }
 
 async function handleSourceAdded() {

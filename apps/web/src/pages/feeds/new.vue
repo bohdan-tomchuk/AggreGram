@@ -27,35 +27,30 @@
       <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
         <form @submit.prevent="handleSubmit" class="space-y-6">
           <!-- Name field -->
-          <UFormGroup label="Feed Name" required :error="nameError">
+          <UFormField label="Feed Name" required :error="nameError || undefined" :hint="`${formData.name.length}/100 characters (min 3)`">
             <UInput
               v-model="formData.name"
               placeholder="e.g., Tech News, Crypto Updates"
               size="lg"
               :disabled="loading"
+              class="w-full"
+              @blur="nameTouched = true"
             />
-            <template #hint>
-              <span class="text-xs text-gray-500">
-                {{ formData.name.length }}/100 characters (min 3)
-              </span>
-            </template>
-          </UFormGroup>
+          </UFormField>
 
           <!-- Description field -->
-          <UFormGroup label="Description" hint="Optional">
+          <UFormField label="Description" hint="Optional · Max 500 characters">
             <UTextarea
               v-model="formData.description"
               placeholder="Describe what this feed aggregates..."
               :rows="3"
               :disabled="loading"
+              class="w-full"
             />
-            <template #hint>
-              <span class="text-xs text-gray-500">Max 500 characters</span>
-            </template>
-          </UFormGroup>
+          </UFormField>
 
           <!-- Polling Interval field -->
-          <UFormGroup
+          <UFormField
             label="Polling Interval"
             hint="How often to check for new messages"
           >
@@ -66,8 +61,23 @@
               value-attribute="value"
               size="lg"
               :disabled="loading"
+              class="w-full"
             />
-          </UFormGroup>
+          </UFormField>
+
+          <!-- Fetch from date -->
+          <UFormField
+            label="Fetch posts from"
+            hint="Optionally fetch historical posts since this date when the channel is created"
+          >
+            <UInput
+              v-model="formData.fetchFromDate"
+              type="datetime-local"
+              size="lg"
+              :disabled="loading"
+              class="w-full"
+            />
+          </UFormField>
 
           <!-- Actions -->
           <div class="flex items-center gap-3 pt-4">
@@ -113,6 +123,7 @@ const formData = reactive<CreateFeedRequest>({
   name: '',
   description: '',
   pollingIntervalSec: 300,
+  fetchFromDate: undefined,
 })
 
 const pollingIntervalOptions = [
@@ -123,9 +134,12 @@ const pollingIntervalOptions = [
   { label: '1 hour', value: 3600 },
 ]
 
+const nameTouched = ref(false)
+
 const nameError = computed(() => {
+  if (!nameTouched.value) return ''
   const trimmedName = formData.name.trim()
-  if (trimmedName.length === 0) return ''
+  if (trimmedName.length === 0) return 'Name is required'
   if (trimmedName.length < 3) return 'Name must be at least 3 characters'
   if (trimmedName.length > 100) return 'Name must not exceed 100 characters'
   return ''
@@ -139,6 +153,7 @@ const isFormValid = computed(() => {
 const toast = useToast()
 
 async function handleSubmit() {
+  nameTouched.value = true
   if (!isFormValid.value) return
 
   loading.value = true
@@ -147,6 +162,9 @@ async function handleSubmit() {
     name: formData.name.trim(),
     description: formData.description?.trim() || undefined,
     pollingIntervalSec: formData.pollingIntervalSec,
+    fetchFromDate: formData.fetchFromDate
+      ? new Date(formData.fetchFromDate).toISOString()
+      : undefined,
   })
 
   loading.value = false
