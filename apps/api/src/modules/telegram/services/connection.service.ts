@@ -8,6 +8,8 @@ import { Repository } from 'typeorm';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { TelegramConnection } from '../entities/telegram-connection.entity';
 import { UserBot } from '../entities/user-bot.entity';
+import { Feed } from '../../feeds/entities/feed.entity';
+import { FeedChannel } from '../../feeds/entities/feed-channel.entity';
 import { TdlibService } from './tdlib.service';
 import { BotFactoryService } from './bot-factory.service';
 import { encrypt, decrypt } from '../../../common/utils/encryption.util';
@@ -32,6 +34,10 @@ export class ConnectionService {
     private readonly connectionRepo: Repository<TelegramConnection>,
     @InjectRepository(UserBot)
     private readonly botRepo: Repository<UserBot>,
+    @InjectRepository(Feed)
+    private readonly feedRepository: Repository<Feed>,
+    @InjectRepository(FeedChannel)
+    private readonly feedChannelRepository: Repository<FeedChannel>,
     private readonly tdlibService: TdlibService,
     private readonly botFactoryService: BotFactoryService,
     private readonly eventEmitter: EventEmitter2,
@@ -58,6 +64,9 @@ export class ConnectionService {
       connection.sessionStatus = 'active';
     }
     await this.connectionRepo.save(connection);
+
+    // Ensure no stale TDLib client or on-disk session from a previous connection
+    await this.tdlibService.resetClient(userId);
 
     if (method === 'qr') {
       const qrCodeUrl = await this.tdlibService.initQrAuth(userId);
@@ -344,7 +353,21 @@ export class ConnectionService {
     try {
       // Stage: creating_bot
       this.setStageStatus(userId, 'creating_bot', 'in_progress');
-      const botResult = await this.botFactoryService.createBot(userId);
+
+      const existingBot = await this.botRepo.findOneBy({ userId });
+      let botResult: { botUsername: string; botTelegramId: string };
+
+      if (existingBot?.status === 'active') {
+        this.logger.log(`Reusing existing bot @${existingBot.botUsername} for user ${userId}`);
+        botResult = {
+          botUsername: existingBot.botUsername,
+          botTelegramId: existingBot.botTelegramId,
+        };
+      } else {
+        botResult = await this.botFactoryService.createBot(userId);
+        await this.syncBotToExistingChannels(userId, botResult.botUsername);
+      }
+
       this.setStageStatus(userId, 'creating_bot', 'completed');
 
       // Stage: finalizing
@@ -387,6 +410,36 @@ export class ConnectionService {
       await this.updateAuthStep(userId, 'error');
       this.emitSetupProgress(userId);
       this.logger.error(`Setup failed for user ${userId}`, error);
+    }
+  }
+
+  private async syncBotToExistingChannels(userId: string, botUsername: string): Promise<void> {
+    const feeds = await this.feedRepository.find({
+      where: { userId },
+      relations: ['feedChannel'],
+    });
+
+    const channels = feeds
+      .map((f) => f.feedChannel)
+      .filter((c): c is FeedChannel => c != null);
+
+    if (channels.length === 0) return;
+
+    this.logger.log(`Syncing new bot @${botUsername} to ${channels.length} existing feed channels`);
+
+    for (const channel of channels) {
+      try {
+        await this.tdlibService.addBotAsAdmin(
+          userId,
+          Number(channel.telegramChannelId),
+          botUsername,
+        );
+        this.logger.log(`Added bot to channel ${channel.telegramChannelId}`);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to add bot to channel ${channel.telegramChannelId}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
   }
 
