@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Feed, FeedStatus } from './entities/feed.entity';
@@ -12,9 +12,12 @@ import { QueueService } from '../queue/queue.service';
 import { SchedulerService } from '../queue/scheduler.service';
 import { UsersService } from '../users/users.service';
 import { TdlibService } from '../telegram/services/tdlib.service';
+import { ChannelsService } from '../channels/channels.service';
 
 @Injectable()
 export class FeedsService {
+  private readonly logger = new Logger(FeedsService.name);
+
   constructor(
     @InjectRepository(Feed)
     private readonly feedRepository: Repository<Feed>,
@@ -30,6 +33,7 @@ export class FeedsService {
     private readonly schedulerService: SchedulerService,
     private readonly usersService: UsersService,
     private readonly tdlibService: TdlibService,
+    private readonly channelsService: ChannelsService,
   ) {}
 
   async create(userId: string, createFeedDto: CreateFeedDto): Promise<Feed> {
@@ -38,6 +42,7 @@ export class FeedsService {
       name: createFeedDto.name,
       description: createFeedDto.description || null,
       pollingIntervalSec: createFeedDto.pollingIntervalSec || 300,
+      fetchFromDate: createFeedDto.fetchFromDate ? new Date(createFeedDto.fetchFromDate) : null,
       status: FeedStatus.DRAFT,
     });
 
@@ -133,10 +138,20 @@ export class FeedsService {
   async delete(userId: string, feedId: string): Promise<void> {
     const feed = await this.feedRepository.findOne({
       where: { id: feedId, userId },
+      relations: ['feedChannel'],
     });
 
     if (!feed) {
       throw new NotFoundException('Feed not found');
+    }
+
+    // Best-effort: delete Telegram channel before removing from DB
+    if (feed.feedChannel?.telegramChannelId) {
+      try {
+        await this.tdlibService.deleteChannel(userId, Number(feed.feedChannel.telegramChannelId));
+      } catch (err: any) {
+        this.logger.warn(`Failed to delete Telegram channel for feed ${feedId}: ${err.message}`);
+      }
     }
 
     await this.feedRepository.remove(feed);
@@ -148,15 +163,13 @@ export class FeedsService {
   async addSource(userId: string, feedId: string, channelUsername: string): Promise<Feed> {
     const feed = await this.verifyFeedOwnership(userId, feedId);
 
-    // Find or create the source channel
+    // Find existing source channel or fetch+upsert from TDLib
     let sourceChannel = await this.sourceChannelRepository.findOne({
       where: { username: channelUsername },
     });
 
     if (!sourceChannel) {
-      throw new NotFoundException(
-        `Channel @${channelUsername} not found. Please search for it first.`,
-      );
+      sourceChannel = await this.channelsService.getChannelByUsername(userId, channelUsername);
     }
 
     // Check if source already exists

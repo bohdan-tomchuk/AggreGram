@@ -16,10 +16,23 @@ export class ChannelsService {
 
   /**
    * Look up a single public Telegram channel by exact username.
+   * Returns transient data only — does NOT persist to the database.
    */
-  async lookupChannelByUsername(userId: string, username: string): Promise<SourceChannel> {
+  async lookupChannelByUsername(userId: string, username: string): Promise<Partial<SourceChannel>> {
     const cleanUsername = username.startsWith('@') ? username.slice(1) : username;
-    return this.getChannelByUsername(userId, cleanUsername);
+
+    const chat = await this.tdlibService.searchPublicChat(userId, cleanUsername);
+
+    if (!chat || chat.type?._ !== 'chatTypeSupergroup' || !chat.type.is_channel) {
+      throw new BadRequestException('Not a valid public channel');
+    }
+
+    const channelData = await this.mapChatToSourceChannel(userId, chat, cleanUsername);
+    if (!channelData) {
+      throw new BadRequestException('Failed to retrieve channel information');
+    }
+
+    return channelData;
   }
 
   /**

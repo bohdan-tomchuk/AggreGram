@@ -8,6 +8,7 @@ import { FeedChannel } from '../../feeds/entities/feed-channel.entity';
 import { TdlibService } from '../../telegram/services/tdlib.service';
 import { UsersService } from '../../users/users.service';
 import { SchedulerService } from '../scheduler.service';
+import { QueueService } from '../queue.service';
 
 interface ChannelCreationJobData {
   feedId: string;
@@ -29,6 +30,7 @@ export class ChannelProcessor implements OnModuleInit, OnModuleDestroy {
     private readonly feedChannelRepository: Repository<FeedChannel>,
     @Inject(forwardRef(() => SchedulerService))
     private readonly schedulerService: SchedulerService,
+    private readonly queueService: QueueService,
   ) {}
 
   async onModuleInit() {
@@ -133,6 +135,12 @@ export class ChannelProcessor implements OnModuleInit, OnModuleDestroy {
 
       // Schedule recurring sync for this feed
       await this.schedulerService.scheduleFeed(feedId, userId, feed.pollingIntervalSec);
+
+      // Enqueue one-time historical fetch if requested
+      if (feed.fetchFromDate) {
+        await this.queueService.enqueueFetchJob(feedId, userId, undefined, feed.fetchFromDate);
+        this.logger.log(`Enqueued historical fetch job for feed ${feedId} (fetchFromDate: ${feed.fetchFromDate.toISOString()})`);
+      }
 
       this.logger.log(`Channel creation completed for feed ${feedId}`);
 

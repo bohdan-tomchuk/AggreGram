@@ -81,10 +81,14 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   /**
    * Enqueue a job to fetch messages from feed sources.
    */
-  async enqueueFetchJob(feedId: string, userId: string, jobId?: string) {
+  async enqueueFetchJob(feedId: string, userId: string, jobId?: string, fetchFromDate?: Date) {
+    const jobData: Record<string, any> = { feedId, userId, jobId };
+    if (fetchFromDate !== undefined) {
+      jobData.fetchFromDate = fetchFromDate.toISOString();
+    }
     const job = await this.fetchQueue.add(
       'fetch-feed-sources',
-      { feedId, userId, jobId },
+      jobData,
       {
         jobId: jobId || `fetch-${feedId}-${Date.now()}`,
       },
@@ -100,7 +104,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   async enqueuePostJob(
     feedId: string,
     userId: string,
-    messages: Array<{ sourceChannelId: number; sourceUsername: string | null; messageId: number; sourceId: string }>,
+    messages: Array<{ sourceChannelId: number; sourceUsername: string | null; messageId: number; sourceId: string; date: number }>,
     jobId: string,
   ) {
     const job = await this.postQueue.add(

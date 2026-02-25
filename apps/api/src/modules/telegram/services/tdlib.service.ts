@@ -13,6 +13,7 @@ import { Repository } from 'typeorm';
 import { getTdjson } from 'prebuilt-tdlib';
 import * as tdl from 'tdl';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import * as QRCode from 'qrcode';
 import type { TelegramAuthStep } from '@aggregram/types';
 import { TelegramConnection } from '../entities/telegram-connection.entity';
@@ -90,7 +91,13 @@ export class TdlibService implements OnModuleDestroy {
   getOrCreateClient(userId: string): tdl.Client {
     const existing = this.clients.get(userId);
     if (existing) {
-      return existing;
+      if (!existing.isClosed()) {
+        return existing;
+      }
+      // Client was closed externally — remove it and create a fresh one
+      this.clients.delete(userId);
+      this.authContexts.delete(userId);
+      this.logger.warn(`Stale closed client found for user ${userId}, creating new one`);
     }
 
     const databaseDirectory = path.resolve(this.databaseDir, userId);
@@ -142,6 +149,13 @@ export class TdlibService implements OnModuleDestroy {
       this.authContexts.delete(userId);
       this.logger.log(`Destroyed TDLib client for user ${userId}`);
     }
+  }
+
+  async resetClient(userId: string): Promise<void> {
+    await this.destroyClient(userId);
+    const dir = path.resolve(this.databaseDir, userId);
+    await fs.rm(dir, { recursive: true, force: true });
+    this.logger.log(`Reset TDLib client and session for user ${userId}`);
   }
 
   /**
@@ -1090,6 +1104,19 @@ export class TdlibService implements OnModuleDestroy {
   }
 
   /**
+   * Delete a Telegram channel (supergroup) owned by the user.
+   * Best-effort: logs a warning on failure instead of throwing.
+   */
+  async deleteChannel(userId: string, channelId: number): Promise<void> {
+    try {
+      const client = await this.getClient(userId);
+      await client.invoke({ _: 'deleteChat', chat_id: channelId });
+    } catch (err: any) {
+      this.logger.warn(`Failed to delete Telegram channel ${channelId} for user ${userId}: ${err.message}`);
+    }
+  }
+
+  /**
    * Get chat history (messages) from a channel.
    * @param userId User ID
    * @param chatId Telegram chat ID
@@ -1135,6 +1162,72 @@ export class TdlibService implements OnModuleDestroy {
   }
 
   /**
+   * Get all messages from a chat since a given Unix timestamp, oldest-first.
+   * Paginates backward through history until messages older than sinceUnixTimestamp are found.
+   */
+  async getMessagesSinceDate(
+    userId: string,
+    chatId: number,
+    sinceUnixTimestamp: number,
+    maxMessages = 500,
+  ): Promise<any[]> {
+    const client = await this.getClient(userId);
+    const collected: any[] = [];
+    let fromMessageId = 0;
+
+    const MAX_INITIAL_RETRIES = 3;
+    const INITIAL_RETRY_DELAY_MS = 800;
+
+    while (collected.length < maxMessages) {
+      let messages: any[] = [];
+
+      // On the first page (fromMessageId === 0), retry if TDLib returns empty
+      // because the chat history cache may not be loaded yet
+      const maxRetries = fromMessageId === 0 ? MAX_INITIAL_RETRIES : 1;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const result = await client.invoke({
+          _: 'getChatHistory',
+          chat_id: chatId,
+          from_message_id: fromMessageId,
+          offset: 0,
+          limit: 100,
+          only_local: false,
+        }) as { messages: any[] };
+
+        messages = result.messages || [];
+        if (messages.length > 0 || attempt === maxRetries - 1) break;
+
+        this.logger.debug(
+          `getMessagesSinceDate: empty result for chat ${chatId} on initial page, retry ${attempt + 1}/${maxRetries}`,
+        );
+        await new Promise(r => setTimeout(r, INITIAL_RETRY_DELAY_MS));
+      }
+
+      if (messages.length === 0) break;
+
+      let reachedCutoff = false;
+      for (const msg of messages) {
+        if (!msg || msg._ !== 'message') continue;
+        if (msg.date < sinceUnixTimestamp) {
+          reachedCutoff = true;
+          break;
+        }
+        collected.push(msg);
+      }
+
+      if (reachedCutoff) break;
+
+      // oldest message ID in this batch becomes the next starting point
+      const oldestId = messages[messages.length - 1]?.id;
+      if (!oldestId || oldestId === fromMessageId) break;
+      fromMessageId = oldestId;
+    }
+
+    // Return oldest-first
+    return collected.sort((a, b) => a.id - b.id);
+  }
+
+  /**
    * Forward a message from one chat to another using Bot API.
    * @param botToken User's bot token
    * @param fromChatId Source chat ID
@@ -1148,7 +1241,7 @@ export class TdlibService implements OnModuleDestroy {
     toChatId: number | string,
   ): Promise<any> {
     try {
-      const response = await fetch(
+      const response = await this.fetchWithRetry(
         `https://api.telegram.org/bot${botToken}/forwardMessage`,
         {
           method: 'POST',
@@ -1183,9 +1276,20 @@ export class TdlibService implements OnModuleDestroy {
           throw exception;
         }
 
-        this.logger.error(
-          `Failed to forward message ${messageId}: ${JSON.stringify(data)}`,
-        );
+        const isNotFound =
+          data.description?.includes('message to forward not found') ||
+          data.description?.includes('message to copy not found') ||
+          data.description?.includes('message not found');
+
+        if (isNotFound) {
+          this.logger.warn(
+            `Message ${messageId} no longer exists in source chat: ${JSON.stringify(data)}`,
+          );
+        } else {
+          this.logger.error(
+            `Failed to forward message ${messageId}: ${JSON.stringify(data)}`,
+          );
+        }
         throw new BadRequestException(
           data.description || 'Failed to forward message',
         );
@@ -1193,18 +1297,154 @@ export class TdlibService implements OnModuleDestroy {
 
       return data.result;
     } catch (error) {
-      this.logger.error(
-        `Failed to forward message ${messageId} from ${fromChatId} to ${toChatId}:`,
-        error,
-      );
       if (
-        error instanceof BadRequestException ||
-        error instanceof HttpException
+        !(error instanceof BadRequestException) &&
+        !(error instanceof HttpException)
       ) {
-        throw error;
+        this.logger.error(
+          `Failed to forward message ${messageId} from ${fromChatId} to ${toChatId}:`,
+          error,
+        );
+        throw new BadRequestException('Failed to forward message');
       }
-      throw new BadRequestException('Failed to forward message');
+      throw error;
     }
+  }
+
+  /**
+   * Forward messages using the user's TDLib session (not Bot API).
+   * Works for any public channel the session can read, regardless of bot membership.
+   * @param sendCopy true = no "Forwarded from" header; false = shows source header
+   */
+  async forwardMessagesViaSession(
+    userId: string,
+    fromChatId: number,
+    messageIds: number[],
+    toChatId: number,
+    sendCopy = true,
+  ): Promise<any> {
+    const client = await this.getClient(userId);
+    try {
+      const result = await client.invoke({
+        _: 'forwardMessages',
+        chat_id: toChatId,
+        from_chat_id: fromChatId,
+        message_ids: messageIds,
+        send_copy: sendCopy,
+        remove_caption: false,
+      });
+      this.logger.log(
+        `TDLib session forwarded msgIds [${messageIds.join(',')}] from ${fromChatId} to ${toChatId}`,
+      );
+      return result;
+    } catch (err: any) {
+      const isNotFound =
+        err?.message?.includes('MESSAGE_ID_INVALID') ||
+        err?.message?.includes('message not found');
+      if (isNotFound) {
+        this.logger.warn(
+          `TDLib message(s) [${messageIds.join(',')}] no longer exist in source chat ${fromChatId}`,
+        );
+      } else {
+        this.logger.error(
+          `TDLib forwardMessages failed for msgIds [${messageIds.join(',')}] from ${fromChatId} to ${toChatId}:`,
+          err,
+        );
+      }
+      throw new BadRequestException(err?.message || 'TDLib session forward failed');
+    }
+  }
+
+  /**
+   * Repost a media group (album) as a group using Bot API copyMessages.
+   * The source attribution is added as a caption on the last message.
+   */
+  async repostMediaGroup(
+    botToken: string,
+    fromChatId: number | string,
+    messageIds: number[],
+    toChatId: number | string,
+    sourceLink: string,
+    lastCaption: string | null,
+    fromChatUsername?: string | null,
+  ): Promise<any> {
+    const effectiveFromChatId = fromChatUsername
+      ? `@${fromChatUsername}`
+      : fromChatId;
+    const MAX_CAPTION_LENGTH = 1024;
+    const plainSourceLine = `\n\n— ${sourceLink}`;
+    const rawCaption = lastCaption || '';
+    const availableLength = MAX_CAPTION_LENGTH - plainSourceLine.length;
+    const trimmedCaption =
+      rawCaption.length > availableLength
+        ? rawCaption.slice(0, availableLength - 1) + '…'
+        : rawCaption;
+
+    // copyMessages preserves media group structure (Bot API 6.4+)
+    const url = `https://api.telegram.org/bot${botToken}/copyMessages`;
+    const body = {
+      chat_id: toChatId,
+      from_chat_id: effectiveFromChatId,
+      message_ids: messageIds,
+    };
+
+    const response = await this.fetchWithRetry(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+
+    if (!response.ok || !data.ok) {
+      if (data.error_code === 429) {
+        const retryAfter = data.parameters?.retry_after || 60;
+        const exception = new HttpException(
+          `Rate limited. Retry after ${retryAfter} seconds`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+        (exception as any).retryAfter = retryAfter;
+        throw exception;
+      }
+      this.logger.error(
+        `copyMessages failed for album [${messageIds.join(',')}]: ${JSON.stringify(data)}`,
+      );
+      throw new BadRequestException(data.description || 'Failed to copy media group');
+    }
+
+    // After copying the group, edit the caption of the FIRST copied message to add source link.
+    // Telegram displays the album caption from the first message in the group.
+    // data.result is an array of { message_id } objects for the newly sent messages.
+    const copiedIds: number[] = (data.result as Array<{ message_id: number }>).map((r) => r.message_id);
+    const firstCopiedId = copiedIds[0];
+    if (firstCopiedId) {
+      const editUrl = `https://api.telegram.org/bot${botToken}/editMessageCaption`;
+      const editBody: Record<string, unknown> = {
+        chat_id: toChatId,
+        message_id: firstCopiedId,
+        caption: trimmedCaption + plainSourceLine,
+      };
+      this.logger.debug({
+        message: 'Editing album caption',
+        firstCopiedId,
+        captionPreview: (trimmedCaption + plainSourceLine).slice(0, 80),
+      });
+      const editResp = await this.fetchWithRetry(editUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editBody),
+      });
+      const editData = await editResp.json();
+      if (!editResp.ok || !editData.ok) {
+        // Non-fatal — group was already posted, but attribution is missing
+        this.logger.error(
+          `Could not edit caption on copied media group msg ${firstCopiedId}: ${JSON.stringify(editData)}`,
+        );
+        // Fallback: send source attribution as a separate text message
+        await this.sendTextMessage(botToken, toChatId, `— ${sourceLink}`);
+      }
+    }
+
+    return data.result;
   }
 
   /**
@@ -1219,8 +1459,16 @@ export class TdlibService implements OnModuleDestroy {
     contentType: string | null,
     text: string | null,
     caption: string | null,
+    fromChatUsername?: string | null,
   ): Promise<any> {
     const sourceFooter = `\n\n— <a href="${sourceLink}">Source</a>`;
+    const MAX_CAPTION_LENGTH = 1024;
+
+    // For public channels, prefer @username — numeric IDs can fail with copyMessage
+    // when the bot has never interacted with the channel.
+    const effectiveFromChatId = fromChatUsername
+      ? `@${fromChatUsername}`
+      : fromChatId;
 
     try {
       let url: string;
@@ -1230,21 +1478,34 @@ export class TdlibService implements OnModuleDestroy {
         url = `https://api.telegram.org/bot${botToken}/sendMessage`;
         body = {
           chat_id: toChatId,
-          text: text + sourceFooter,
+          text: this.htmlEscape(text) + sourceFooter,
           parse_mode: 'HTML',
         };
       } else {
+        const plainSourceLine = `\n\n— ${sourceLink}`;
+        const rawCaption = caption || '';
+        const availableLength = MAX_CAPTION_LENGTH - plainSourceLine.length;
+        const trimmedCaption =
+          rawCaption.length > availableLength
+            ? rawCaption.slice(0, availableLength - 1) + '…'
+            : rawCaption;
+
         url = `https://api.telegram.org/bot${botToken}/copyMessage`;
         body = {
           chat_id: toChatId,
-          from_chat_id: fromChatId,
+          from_chat_id: effectiveFromChatId,
           message_id: messageId,
-          caption: (caption || '') + sourceFooter,
-          parse_mode: 'HTML',
+          caption: trimmedCaption + plainSourceLine,
+          // No parse_mode — plain text; URL is auto-linked by Telegram
         };
+        this.logger.debug({
+          message: 'Sending copyMessage with caption',
+          messageId,
+          captionPreview: (trimmedCaption + plainSourceLine).slice(0, 80),
+        });
       }
 
-      const response = await fetch(url, {
+      const response = await this.fetchWithRetry(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -1258,7 +1519,7 @@ export class TdlibService implements OnModuleDestroy {
           this.logger.warn({
             message: 'Bot API rate limit hit',
             messageId,
-            fromChatId,
+            fromChatId: effectiveFromChatId,
             toChatId,
             retryAfter,
           });
@@ -1268,6 +1529,48 @@ export class TdlibService implements OnModuleDestroy {
           );
           (exception as any).retryAfter = retryAfter;
           throw exception;
+        }
+
+        // For non-text messages, try forwardMessage as fallback (shows "forwarded from" header)
+        if (contentType !== 'messageText') {
+          this.logger.warn(
+            `copyMessage failed for msgId ${messageId} (${JSON.stringify(data)}), falling back to forwardMessage`,
+          );
+          const fwdData = await this.forwardMessage(
+            botToken,
+            effectiveFromChatId,
+            messageId,
+            toChatId,
+          );
+          const forwardedMsgId = fwdData?.message_id;
+          if (forwardedMsgId) {
+            const plainSourceLine = `\n\n— ${sourceLink}`;
+            const editUrl = `https://api.telegram.org/bot${botToken}/editMessageCaption`;
+            try {
+              const editResp = await this.fetchWithRetry(editUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: toChatId,
+                  message_id: forwardedMsgId,
+                  caption: plainSourceLine,
+                }),
+              });
+              const editData = await editResp.json();
+              if (!editResp.ok || !editData.ok) {
+                this.logger.warn(
+                  `Could not edit caption on forwarded msg ${forwardedMsgId}: ${JSON.stringify(editData)}`,
+                );
+                // Fallback: send source attribution as a separate text message
+                await this.sendTextMessage(botToken, toChatId, `— ${sourceLink}`);
+              }
+            } catch (editErr) {
+              this.logger.error(
+                `editMessageCaption failed after forwardMessage: ${editErr}`,
+              );
+            }
+          }
+          return fwdData;
         }
 
         this.logger.error(
@@ -1281,7 +1584,7 @@ export class TdlibService implements OnModuleDestroy {
       return data.result;
     } catch (error) {
       this.logger.error(
-        `Failed to repost message ${messageId} from ${fromChatId} to ${toChatId}:`,
+        `Failed to repost message ${messageId} from ${effectiveFromChatId} to ${toChatId}:`,
         error,
       );
       if (
@@ -1292,6 +1595,85 @@ export class TdlibService implements OnModuleDestroy {
       }
       throw new BadRequestException('Failed to repost message');
     }
+  }
+
+  /**
+   * Edit the caption of a message using the user's TDLib session.
+   * Uses TDLib message IDs directly — no Bot-API ID conversion needed.
+   */
+  async editMessageCaptionViaSession(
+    userId: string,
+    chatId: number,
+    messageId: number,
+    caption: string,
+  ): Promise<void> {
+    const client = await this.getClient(userId);
+    try {
+      await client.invoke({
+        _: 'editMessageCaption',
+        chat_id: chatId,
+        message_id: messageId,
+        caption: { _: 'formattedText', text: caption, entities: [] },
+      });
+      this.logger.debug(`TDLib edited caption on msg ${messageId} in chat ${chatId}`);
+    } catch (err) {
+      this.logger.error(`TDLib editMessageCaption failed for msg ${messageId} in chat ${chatId}: ${err}`);
+    }
+  }
+
+  /**
+   * Send a plain text message to a chat via Bot API.
+   * Used as a fallback attribution when editMessageCaption fails.
+   */
+  private async sendTextMessage(botToken: string, chatId: number | string, text: string): Promise<void> {
+    try {
+      const resp = await this.fetchWithRetry(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        this.logger.error(`sendTextMessage fallback failed for chat ${chatId}: ${JSON.stringify(data)}`);
+      }
+    } catch (err) {
+      this.logger.error(`sendTextMessage fallback threw for chat ${chatId}: ${err}`);
+    }
+  }
+
+  /**
+   * Public wrapper around sendTextMessage for use from post.processor.ts
+   * when the TDLib editMessageCaptionViaSession path cannot set a caption.
+   */
+  async sendSourceAttributionMessage(botToken: string, chatId: number | string, sourceLink: string): Promise<void> {
+    await this.sendTextMessage(botToken, chatId, `— ${sourceLink}`);
+  }
+
+  private async fetchWithRetry(
+    url: string,
+    options: RequestInit,
+    retries = 2,
+  ): Promise<Response> {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fetch(url, options);
+      } catch (err) {
+        if (attempt === retries) throw err;
+        this.logger.warn(
+          `fetch() network error, retrying (${attempt + 1}/${retries}):`,
+          err,
+        );
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+    throw new Error('unreachable');
+  }
+
+  private htmlEscape(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   private mapTdlibError(error: unknown): BadRequestException | HttpException {

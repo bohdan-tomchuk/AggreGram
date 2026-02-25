@@ -9,6 +9,7 @@ import { FeedsService } from './feeds.service';
 import { FeedsController } from './feeds.controller';
 import { UsersModule } from '../users/users.module';
 import { TelegramModule } from '../telegram/telegram.module';
+import { ChannelsModule } from '../channels/channels.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { TelegramModule } from '../telegram/telegram.module';
     ]),
     UsersModule,
     TelegramModule,
+    ChannelsModule,
   ],
   controllers: [FeedsController],
   providers: [FeedsService],

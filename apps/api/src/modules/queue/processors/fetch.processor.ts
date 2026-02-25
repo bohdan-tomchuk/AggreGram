@@ -27,7 +27,7 @@ export class FetchProcessor extends WorkerHost {
   }
 
   async process(job: Job): Promise<any> {
-    const { feedId, userId, jobId } = job.data;
+    const { feedId, userId, jobId, fetchFromDate } = job.data;
     const startTime = Date.now();
 
     this.logger.log({
@@ -95,6 +95,8 @@ export class FetchProcessor extends WorkerHost {
         contentType: string | null;
         text: string | null;
         caption: string | null;
+        mediaAlbumId: string | null;
+        date: number;
       }> = [];
       // Track highest message ID seen per source (incl. protected) to advance checkpoints
       const checkpointAdvances = new Map<string, number>();
@@ -133,34 +135,51 @@ export class FetchProcessor extends WorkerHost {
             });
           }
 
-          const messages = await this.tdlibService.getChatHistory(
-            userId,
-            Number(sourceChannelId),
-            lastMessageId,
-            100,
-          );
+          let allNewMessages: any[];
 
-          this.logger.log({
-            message: 'Raw messages from TDLib',
-            sourceChannelId,
-            lastMessageId,
-            fetchedIds: messages.map((m) => m.id).slice(0, 10),
-            totalFetched: messages.length,
-          });
+          if (fetchFromDate && lastMessageId === 0) {
+            // Historical fetch: get all messages since the given date
+            const sinceTimestamp = Math.floor(new Date(fetchFromDate).getTime() / 1000);
+            this.logger.log({
+              message: 'Fetching messages since date',
+              sourceChannelId,
+              fetchFromDate,
+              sinceTimestamp,
+            });
+            allNewMessages = await this.tdlibService.getMessagesSinceDate(
+              userId,
+              Number(sourceChannelId),
+              sinceTimestamp,
+            );
+          } else {
+            const messages = await this.tdlibService.getChatHistory(
+              userId,
+              Number(sourceChannelId),
+              0,
+              100,
+            );
 
-          // Filter and collect messages (oldest first so checkpoint ends at newest)
-          const allNewMessages = messages
-            .filter((msg) => {
-              // Only keep genuine messages (not messageEmpty, updates, etc.)
-              if (!msg || msg._ !== 'message') return false;
-              // Skip messages we've already seen
-              if (lastMessageId > 0 && msg.id <= lastMessageId) return false;
-              return true;
-            })
-            .sort((a, b) => a.id - b.id); // ascending: oldest first
+            this.logger.log({
+              message: 'Raw messages from TDLib',
+              sourceChannelId,
+              lastMessageId,
+              fetchedIds: messages.map((m) => m.id).slice(0, 10),
+              totalFetched: messages.length,
+            });
 
-          totalMessagesSeen += allNewMessages.length;
-          const validMessages = chatHasProtection ? [] : allNewMessages;
+            // Filter and collect messages (oldest first so checkpoint ends at newest)
+            allNewMessages = messages
+              .filter((msg) => {
+                if (!msg || msg._ !== 'message') return false;
+                if (lastMessageId > 0 && msg.id <= lastMessageId) return false;
+                return true;
+              })
+              .sort((a, b) => a.id - b.id);
+          }
+
+          const messagesToUse = allNewMessages;
+          totalMessagesSeen += messagesToUse.length;
+          const validMessages = chatHasProtection ? [] : messagesToUse;
 
           this.logger.log({
             message: 'Found new messages',
@@ -170,7 +189,7 @@ export class FetchProcessor extends WorkerHost {
             newMessages: allNewMessages.length,
             forwardable: validMessages.length,
             protected: allNewMessages.length - validMessages.length,
-            totalFetched: messages.length,
+            totalFetched: allNewMessages.length,
           });
 
           // Add forwardable messages to forward list
@@ -183,6 +202,9 @@ export class FetchProcessor extends WorkerHost {
               contentType: msg.content?._ || null,
               text: msg.content?.text?.text || null,
               caption: msg.content?.caption?.text || null,
+              // TDLib uses media_album_id (string "0" means no album)
+              mediaAlbumId: msg.media_album_id && msg.media_album_id !== '0' ? msg.media_album_id : null,
+              date: msg.date,
             });
           }
 
@@ -228,6 +250,9 @@ export class FetchProcessor extends WorkerHost {
       // so a value > 0 with messages_posted = 0 indicates content protection blocking forwards
       aggregationJob.messages_fetched = totalMessagesSeen;
       await this.aggregationJobRepository.save(aggregationJob);
+
+      // Sort all collected messages chronologically across sources
+      messagesToForward.sort((a, b) => a.date - b.date);
 
       // If we have messages, enqueue post job
       if (messagesToForward.length > 0) {

@@ -50,6 +50,9 @@ export class Feed {
   @Column({ name: 'polling_interval_sec', type: 'int', default: 300 })
   pollingIntervalSec: number;
 
+  @Column({ name: 'fetch_from_date', type: 'timestamp', nullable: true })
+  fetchFromDate: Date | null;
+
   @OneToMany(() => FeedSource, (feedSource) => feedSource.feed)
   feedSources: FeedSource[];
 

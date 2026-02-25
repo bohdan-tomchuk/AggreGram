@@ -52,6 +52,7 @@ export interface CreateFeedRequest {
   name: string;
   description?: string;
   pollingIntervalSec?: number;
+  fetchFromDate?: string;
 }
 
 export interface FeedListResponse {
